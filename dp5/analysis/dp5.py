@@ -128,7 +128,7 @@ class DP5ProbabilityCalculator:
 
         Computes geometric means of atomic probabilities to generate final molecular probabilities.
         """
-        total_probs = np.array([np.exp(np.log(arr).mean()) for arr in mol_probs])
+        total_probs = np.array([np.exp(np.log(arr + 1e-10).mean()) for arr in mol_probs])
         return mol_probs, total_probs
 
     @abstractmethod
