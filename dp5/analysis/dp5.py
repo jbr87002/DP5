@@ -137,8 +137,6 @@ class DP5ProbabilityCalculator:
 
     @staticmethod
     def boltzmann_weight(df, col):
-        print(df[col])
-        print(df["conf_population"])
         return df.groupby("mol_id")[["conf_population", col]].apply(
             lambda x: (x[col] * x["conf_population"]).sum()
         )
