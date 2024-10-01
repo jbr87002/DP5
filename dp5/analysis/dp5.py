@@ -8,13 +8,15 @@ from abc import abstractmethod
 from tqdm import tqdm
 from joblib import Parallel, delayed
 from scipy.stats.kde import gaussian_kde
+from scipy.stats import norm
 from sklearn.neighbors import KernelDensity
 
 from dp5.neural_net.CNN_model import *
+from dp5.neural_net.quantile_regressor import generate_quantiles
 from dp5.analysis.utils import scale_nmr, AnalysisData
+from dp5.nmr_processing.description_files import probability_assignment
 
 logger = logging.getLogger(__name__)
-
 
 class DP5:
     """Performs DP5 analysis"""
@@ -135,6 +137,8 @@ class DP5ProbabilityCalculator:
 
     @staticmethod
     def boltzmann_weight(df, col):
+        print(df[col])
+        print(df["conf_population"])
         return df.groupby("mol_id")[["conf_population", col]].apply(
             lambda x: (x[col] * x["conf_population"]).sum()
         )
@@ -200,20 +204,36 @@ class DP5ProbabilityCalculator:
             ignore_index=True,
         )
         logger.info("Extracting atomic representations")
-        # now return condensed representations! These are now grouped by conformer
+        # now return full representations! These are now grouped by conformer
         rep_df["representations"] = extract_representations(
             self.model, rep_df, self.batch_size
         )
-        logger.debug("Transforming representations")
-        rep_df["representations"] = rep_df["representations"].apply(
-            self.transform.transform
-        )
-        logger.info("Estimating atomic probabilities")
-        rep_df["atom_probs"] = self.kde_probfunction(rep_df)
-        atom_probs = [np.stack(df) for i, df in rep_df.groupby("mol_id")["atom_probs"]]
+        logger.info("Generating atomic cdfs using quantile regression model")
+        atom_index_col = rep_df['atom_index']
+        quantiles, mus, sigmas = generate_quantiles(rep_df["representations"], atom_index_col)
+        rep_df['quantiles'] = quantiles
+        rep_df['mu'] = mus
+        rep_df['sigma'] = sigmas
+
+        logger.info("Assigning shifts and estimating atomic probabilities")
+        atom_probs_col = []
+        for r, row in rep_df.iterrows():
+            assignment = np.array(
+                probability_assignment(row['exp_shifts'], row['conf_shifts'], row['mu'], row['sigma']),
+                dtype=np.float32,
+            )
+            atom_probs = []
+            for mu, sigma, peak in zip(row['mu'], row['sigma'], assignment):
+                perc = norm.cdf(peak, mu, sigma)
+                prob = 1 - np.abs(1 - 2 * perc)
+                atom_probs.append(prob)
+            atom_probs_col.append(atom_probs)
+        rep_df['atom_probs'] = atom_probs_col
+
+        print(rep_df)
+
 
         weighted_probs = self.boltzmann_weight(rep_df, "atom_probs")
-        weighted_probs = 1 - weighted_probs
 
         weighted_errors = self.boltzmann_weight(rep_df, "errors")
         cmae = weighted_errors.apply(lambda x: np.mean(np.abs(x)))

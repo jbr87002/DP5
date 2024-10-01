@@ -5,6 +5,8 @@ Molecules is the container class to contain all the data. MM and DFT methods no 
 """
 
 import logging
+import os
+import tensorflow as tf
 
 from .data_structures import Molecules
 from dp5.nmr_processing import NMRData
@@ -14,6 +16,10 @@ logger = logging.getLogger(__name__)
 
 
 def runner(config):
+    # Set TensorFlow to avoid all GPU usage
+    os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+    tf.config.set_visible_devices([], 'GPU')
+
     logger.info("Starting DP4 workflow")
 
     data = Molecules(config)

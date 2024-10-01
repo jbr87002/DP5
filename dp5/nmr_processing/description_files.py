@@ -1,3 +1,6 @@
+import numpy as np
+from scipy.stats import norm
+from scipy.optimize import linear_sum_assignment
 import re
 import networkx as nx
 import logging
@@ -102,3 +105,29 @@ def matching_assignment(calculated, experimental, threshold=40):
         assigned[index] = exp_shift
 
     return assigned
+
+def probability_assignment(spectrum, preds, mus, sigmas):
+    """
+    Constructs probability matrix for each shift pair, using the fitted gaussian.
+    Finds the optimal assignment using the Hungarian algorithm.
+    Returns this assignment, i.e. a list of the experimental shifts that
+    correspond to the assigned predicted shifts.
+    Args:
+        spectrum (np.array): experimental spectrum
+        preds (np.array): cascade predictions
+        mus (np.array): fitted gaussian means
+        sigmas (np.array): fitted gaussian stds
+    Returns:
+        np.array: assignment of experimental shifts to predicted shifts
+    """
+    # construct probability matrix
+    prob_matrix = np.zeros((len(preds), len(spectrum)))
+    for i, shift in enumerate(spectrum):
+        for j, (mu, sigma) in enumerate(zip(mus, sigmas)):
+            perc = norm.cdf(shift, mu, sigma)
+            prob = 1 - np.abs(1 - 2 * perc)
+            prob_matrix[j, i] = prob
+    # find optimal assignment
+    row_ind, col_ind = linear_sum_assignment(prob_matrix, maximize=True)
+    assignment = spectrum[col_ind]
+    return assignment
