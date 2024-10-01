@@ -208,6 +208,11 @@ class DP5ProbabilityCalculator:
         rep_df["representations"] = extract_representations(
             self.model, rep_df, self.batch_size
         )
+        logger.info("Extracting atomic representations")
+        rep_df["representations"] = extract_representations(
+            self.model, rep_df, self.batch_size
+        )
+        
         logger.info("Generating atomic cdfs using quantile regression model")
         atom_index_col = rep_df['atom_index']
         quantiles, mus, sigmas = generate_quantiles(rep_df["representations"], atom_index_col)
@@ -216,19 +221,20 @@ class DP5ProbabilityCalculator:
         rep_df['sigma'] = sigmas
 
         logger.info("Assigning shifts and estimating atomic probabilities")
-        atom_probs_col = []
-        for r, row in rep_df.iterrows():
-            assignment = np.array(
-                probability_assignment(row['exp_shifts'], row['conf_shifts'], row['mu'], row['sigma']),
-                dtype=np.float32,
-            )
-            atom_probs = []
-            for mu, sigma, peak in zip(row['mu'], row['sigma'], assignment):
-                perc = norm.cdf(peak, mu, sigma)
-                prob = 1 - np.abs(1 - 2 * perc)
-                atom_probs.append(prob)
-            atom_probs_col.append(np.array(atom_probs))
-        rep_df['atom_probs'] = atom_probs_col
+        
+        # Vectorized operations
+        assignments = np.array([
+            probability_assignment(row['exp_shifts'], row['conf_shifts'], row['mu'], row['sigma'])
+            for _, row in rep_df.iterrows()
+        ], dtype=np.float32)
+        
+        atom_probs = []
+        for assign, mu, sigma in zip(assignments, rep_df['mu'], rep_df['sigma']):
+            perc = norm.cdf(assign, mu, sigma)
+            probs = 1 - np.abs(1 - 2 * perc)
+            atom_probs.append(probs)
+        
+        rep_df['atom_probs'] = atom_probs
 
         weighted_probs = self.boltzmann_weight(rep_df, "atom_probs")
 
