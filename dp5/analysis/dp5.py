@@ -227,11 +227,8 @@ class DP5ProbabilityCalculator:
                 perc = norm.cdf(peak, mu, sigma)
                 prob = 1 - np.abs(1 - 2 * perc)
                 atom_probs.append(prob)
-            atom_probs_col.append(atom_probs)
+            atom_probs_col.append(np.array(atom_probs))
         rep_df['atom_probs'] = atom_probs_col
-
-        print(rep_df)
-
 
         weighted_probs = self.boltzmann_weight(rep_df, "atom_probs")
 
