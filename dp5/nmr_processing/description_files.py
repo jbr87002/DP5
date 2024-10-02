@@ -106,7 +106,7 @@ def matching_assignment(calculated, experimental, threshold=40):
 
     return assigned
 
-def probability_assignment(spectrum, preds, mus, sigmas):
+def probability_assignment(spectrum, mus, sigmas):
     """
     Constructs probability matrix for each shift pair, using the fitted gaussian.
     Finds the optimal assignment using the Hungarian algorithm.
@@ -121,12 +121,13 @@ def probability_assignment(spectrum, preds, mus, sigmas):
         np.array: assignment of experimental shifts to predicted shifts
     """
     # construct probability matrix
-    prob_matrix = np.zeros((len(preds), len(spectrum)))
+    prob_matrix = np.zeros((len(mus), len(spectrum)))
     for i, shift in enumerate(spectrum):
         for j, (mu, sigma) in enumerate(zip(mus, sigmas)):
             perc = norm.cdf(shift, mu, sigma)
             prob = 1 - np.abs(1 - 2 * perc)
-            prob_matrix[j, i] = prob
+            prob_matrix[j, i] = prob if not np.isnan(prob) else 0
+    
     # find optimal assignment
     row_ind, col_ind = linear_sum_assignment(prob_matrix, maximize=True)
     assignment = spectrum[col_ind]

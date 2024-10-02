@@ -14,7 +14,7 @@ from sklearn.neighbors import KernelDensity
 from dp5.neural_net.CNN_model import *
 from dp5.neural_net.quantile_regressor import generate_quantiles
 from dp5.analysis.utils import scale_nmr, AnalysisData
-from dp5.nmr_processing.description_files import probability_assignment
+from dp5.nmr_processing.description_files import probability_assignment, matching_assignment
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ class DP5:
 
         if use_dft_shifts:
             # must load model for error prediction
-            self.C_DP5 = ErrorDP5ProbabilityCalculator(
+            self.C_DP5 = ErrorDP5P2robabilityCalculator(
                 atom_type="C",
                 model_file="NMRdb-CASCADEset_Error_mean_model_atom_features256.hdf5",
                 batch_size=16,
@@ -81,6 +81,7 @@ class DP5:
                 dp5_data.Cexp,
                 dp5_data.Cerrors,
                 dp5_data.Cconf_atom_probs,
+                dp5_data.atom_stds,
                 dp5_data.CDP5_atom_probs,
                 dp5_data.CDP5_mol_probs,
             ) = self.C_DP5(mols)
@@ -128,7 +129,7 @@ class DP5ProbabilityCalculator:
 
         Computes geometric means of atomic probabilities to generate final molecular probabilities.
         """
-        total_probs = np.array([np.exp(np.log(arr + 1e-10).mean()) for arr in mol_probs])
+        total_probs = np.array([np.exp(np.nanmean(np.log(arr + 1e-10))) for arr in mol_probs])
         return mol_probs, total_probs
 
     @abstractmethod
@@ -157,16 +158,21 @@ class DP5ProbabilityCalculator:
         rep_df = []
         for mol_id, mol in enumerate(mols):
             calculated, experimental, labels, indices = self.get_shifts_and_labels(mol)
-            # drop unassigned !
-            has_exp = np.isfinite(experimental)
-            new_calcs = calculated[:, has_exp]
-            new_exps = experimental[has_exp]
-            new_labs = labels[has_exp]
-            new_inds = indices[has_exp]
+            # # drop unassigned !
+            # has_exp = np.isfinite(experimental)
+            # new_calcs = calculated[:, has_exp]
+            # new_exps = experimental[has_exp]
+            # new_labs = labels[has_exp]
+            # new_inds = indices[has_exp]
+            
+            # don't drop unassigned, as we're re-doing it with quantile regression model
+            new_calcs = calculated
+            new_exps = experimental
+            new_labs = labels
+            new_inds = indices
 
-            # generate scaled errors
-            scaled = scale_nmr(new_calcs, new_exps)
-            corrected_errors = scaled - new_exps[np.newaxis, :]
+            # placeholder: calculate these again after assigning with quantile regression model
+            corrected_errors = calculated - new_exps[np.newaxis, :]
 
             all_labels.append(new_labs)
 
@@ -214,6 +220,9 @@ class DP5ProbabilityCalculator:
         logger.info("Generating atomic cdfs using quantile regression model")
         atom_index_col = rep_df['atom_index']
         quantiles, mus, sigmas = generate_quantiles(rep_df["representations"], atom_index_col)
+        quantiles = [np.array(quantile) for quantile in quantiles]
+        mus = [np.array(mu) for mu in mus]
+        sigmas = [np.array(sigma) for sigma in sigmas]
         rep_df['quantiles'] = quantiles
         rep_df['mu'] = mus
         rep_df['sigma'] = sigmas
@@ -221,11 +230,16 @@ class DP5ProbabilityCalculator:
         logger.info("Assigning shifts and estimating atomic probabilities")
         
         # Vectorized operations
-        assignments = np.array([
-            probability_assignment(row['exp_shifts'], row['conf_shifts'], row['mu'], row['sigma'])
+        assignments = [
+            np.array(probability_assignment(row['exp_shifts'], row['mu'], row['sigma']))
             for _, row in rep_df.iterrows()
-        ], dtype=np.float32)
+        ]
+
+        # assignments = np.array([
+        #     matching_assignment(row['conf_shifts'], row['exp_shifts']) for _, row in rep_df.iterrows()
+        # ], dtype=np.float32)
         
+        rep_df['exp_shifts'] = assignments
         atom_probs = []
         for assign, mu, sigma in zip(assignments, rep_df['mu'], rep_df['sigma']):
             perc = norm.cdf(assign, mu, sigma)
@@ -233,16 +247,24 @@ class DP5ProbabilityCalculator:
             atom_probs.append(probs)
         
         rep_df['atom_probs'] = atom_probs
+        rep_df['errors'] = rep_df['exp_shifts'] - rep_df['mu']
 
-        weighted_probs = self.boltzmann_weight(rep_df, "atom_probs")
+        # if any value in rep_df['conf_population'] is less than 1, return NotImplementedError
+        if rep_df['conf_population'].min() < 1:
+            raise NotImplementedError("Can't use Boltzmann weighting with probability_assignment, as not all conformers have the same atoms assigned.")
 
-        weighted_errors = self.boltzmann_weight(rep_df, "errors")
+            weighted_probs = self.boltzmann_weight(rep_df, "atom_probs")
+            weighted_errors = self.boltzmann_weight(rep_df, "errors")
+        else:
+            weighted_probs = rep_df['atom_probs']
+            weighted_errors = rep_df['errors']
+
         cmae = weighted_errors.apply(lambda x: np.mean(np.abs(x)))
 
         # rescale and aggregate probabilities
         weighted_probs, total_probs = self.rescale_probabilities(weighted_probs, cmae)
 
-        calc_shifts_analysed = self.boltzmann_weight(rep_df, "conf_shifts")
+        calc_shifts_analysed = self.boltzmann_weight(rep_df, "mu")
         exp_shifts_analysed = rep_df.groupby("mol_id")["exp_shifts"].first()
 
         # eventually return atomic probs, weighted atomic probs, DP5 scores
@@ -253,6 +275,7 @@ class DP5ProbabilityCalculator:
             exp_shifts_analysed,
             weighted_errors,
             atom_probs,
+            rep_df['sigma'],
             weighted_probs,
             total_probs,
         )
@@ -445,16 +468,17 @@ class DP5Data(AnalysisData):
         output_dict["CDP5_output"] = []
         # output_dict["HDP5_output"] = []
         # output_dict["DP5_output"] = []
-        for mol, clab, cshift, cexp, cerr, cpr in zip(
+        for mol, clab, cshift, cexp, cerr, cpr, csigma in zip(
             self.mols,
             self.Clabels,
             self.Cshifts,
             self.Cexp,
             self.Cerrors,
             self.CDP5_atom_probs,
+            self.atom_stds,
         ):
             output = f"\nAssigned C NMR shift for {mol}:"
-            output += self.print_assignment(clab, cshift, cexp, cerr, cpr)
+            output += self.print_assignment(clab, cshift, cexp, cerr, cpr, csigma)
             output_dict["C_output"].append(output)
 
         # for mol, hlab, hshift, hscal, hexp, herr in zip(
@@ -478,7 +502,7 @@ class DP5Data(AnalysisData):
         return dp5_output
 
     @staticmethod
-    def print_assignment(labels, calculated, exp, error, probs):
+    def print_assignment(labels, calculated, exp, error, probs, sigma):
         """Prints table for molecule"""
 
         s = np.argsort(calculated)
@@ -487,11 +511,21 @@ class DP5Data(AnalysisData):
         sexp = exp[s]
         serror = error[s]
         sprob = probs[s]
+        ssigma = sigma[s]
+        deviations = np.abs(serror / ssigma)
 
-        output = f"\nlabel, calc, exp, error, prob"
-
-        for lab, calc, ex, er, p in zip(slabels, svalues, sexp, serror, sprob):
-            output += f"\n{lab:6s} {calc:6.2f} {ex:6.2f} {er:6.2f} {p:6.2f}"
+        output = "\n{:6s} {:>6s} {:>6s} {:>6s} {:>6s} {:>6s} {:>6s}".format(
+            "label", "calc", "exp", "error", "sigma", "deviation", "prob"
+        )
+        for lab, calc, ex, er, p, s, d in zip(slabels, svalues, sexp, serror, sprob, ssigma, deviations):
+            if np.isnan(d):
+                output += "\n{:6s} {:6.2f} {:>6.2s} {:>6.2s} {:6.2f} {:>6s} {:>6s}".format(
+                    lab, calc, "-", "-", s, "-", "-"
+                )
+            else:
+                output += "\n{:6s} {:6.2f} {:6.2f} {:6.2f} {:6.2f} {:6.2f}σ {:6.2f}".format(
+                    lab, calc, ex, er, s, d, p
+                )
         return output
 
 
