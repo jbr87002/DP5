@@ -240,7 +240,7 @@ class Molecules:
         self.dp5_output = dp5(self.mols)
 
     def dp4_analysis(self):
-        dp4 = DP4(self.config["output_folder"], self.config["dp4"])
+        dp4 = DP4(self.config["output_folder"], self.config["workflow"]["dft_nmr"])
         self.dp4_output = dp4(self.mols)
 
     def print_results(self):

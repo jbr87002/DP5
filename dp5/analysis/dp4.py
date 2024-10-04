@@ -1,310 +1,556 @@
-"""Carries out DP4 analysis of structural proposals."""
+"""Runs DP4 analysis for organic molecules."""
 
-import logging
-from math import prod
 from pathlib import Path
-import pickle
-import json
+import logging
+import dill as pickle
+from abc import abstractmethod
 
-import numpy as np
-from scipy import stats
+from tqdm import tqdm
+from joblib import Parallel, delayed
+from scipy.stats.kde import gaussian_kde
+from scipy.stats import norm
+from sklearn.neighbors import KernelDensity
 
-from .utils import scale_nmr, AnalysisData
+from dp5.neural_net.CNN_model import *
+from dp5.neural_net.quantile_regressor import generate_quantiles
+from dp5.analysis.utils import scale_nmr, AnalysisData
+from dp5.nmr_processing.description_files import probability_assignment, matching_assignment
 
 logger = logging.getLogger(__name__)
 
-
 class DP4:
-    "Handles DP4 analysis"
+    """Performs DP4 analysis"""
 
-    def __init__(self, output_folder, dp4_config):
-        """Initialise DP4 Analysis object.
-
-        Specify the save path, load relevant statistical models, set up DP4 calculators for each nucleus
+    def __init__(self, output_folder: Path, use_dft_shifts: bool):
+        """Initialise the settings.
 
         Arguments:
-         output_folder(Path): path to the output folder
-         dp4_config(dict): must contain keys ``stats_model`` and ``param_file``
-        Explanation:
-         ``dp4_config['stats_model']`` specifies the model to use.
-         ``dp4_config['param_file']`` specifies the Gaussian parameters.
-         Data will be saved in the output folder.
+          output_folder(Path): path for saved DP4 data
+          use_dft_shifts(bool): if set, analyses errors of DFT calculations, compares shifts againt their environments otherwise.
+
         """
+        logger.info("Setting up DP4 method")
+        self.output_folder = output_folder
+        self.dft_shifts = use_dft_shifts
 
-        save_dir = Path(output_folder) / "dp4"
-        save_dir.mkdir(exist_ok=True)
-        self.save_dir = save_dir
-
-        # define default statictical parameters
-        meanC = 0.0
-        meanH = 0.0
-        stdevC = 2.269372270818724
-        stdevH = 0.18731058105269952
-
-        stats_model = dp4_config["stats_model"]
-        param_file = dp4_config["param_file"]
-
-        if stats_model in ("g", "m"):
-            logger.info("Statistical model parameter file: %s" % param_file)
-            if param_file in ("none", ""):
-                logger.info("Using default statistical model")
-
-            else:
-                logger.info("Reading DP4 parameters from %s" % str(param_file))
-                meanC, stdevC, meanH, stdevH = self.read_parameters(param_file)
+        if use_dft_shifts:
+            # must load model for error prediction
+            self.C_DP4 = ErrorDP4ProbabilityCalculator(
+                atom_type="C",
+                model_file="NMRdb-CASCADEset_Error_mean_model_atom_features256.hdf5",
+                batch_size=16,
+                transform_file="pca_10_ERRORrep_Error_decomp.p",
+                kde_file="pca_10_kde_ERRORrep_Error_kernel.p",
+                dp4_correct_scaling="Error_correct_kde.p",
+                dp4_incorrect_scaling="Error_incorrect_kde.p",
+            )
         else:
-            logger.error("Statistical model not recognised: %s" % stats_model)
-            logger.info("Using default statistical model")
-        self.H_probability = DP4ProbabilityCalculator(mean=meanH, stdev=stdevH)
-        self.C_probability = DP4ProbabilityCalculator(mean=meanC, stdev=stdevC)
-
-    def read_parameters(self, file):
-        """Read distribution parameters from the external file
-        lines of the file: comment, carbon mean errors, carbon standard deviations,
-        proton mean errors, proton standard deviations
-        Arguments:
-        - file(str or Path): filename
-        """
-        with open(file, "r") as f:
-            inp = f.readlines()
-
-        Cmeans = [float(x) for x in inp[1].split(",")]
-        Cstdevs = [float(x) for x in inp[2].split(",")]
-        Hmeans = [float(x) for x in inp[3].split(",")]
-        Hstdevs = [float(x) for x in inp[4].split(",")]
-        # necessary to prevent failure at evaluation stage
-        if len(Cmeans) != len(Cstdevs) or len(Hmeans) != len(Hstdevs):
-            logger.critical(
-                "Number of parameters does not match. Please check the file."
-            )
-            raise ValueError(
-                "The DP4 parameters file could not be read correctly. Please check the file"
+            # must load model for shift preiction
+            self.C_DP4 = ExpDP4ProbabilityCalculator(
+                atom_type="C",
+                model_file="NMRdb-CASCADEset_Exp_mean_model_atom_features256.hdf5",
+                batch_size=16,
+                transform_file="pca_10_EXP_decomp.p",
+                kde_file="pca_10_kde_EXP_kernel.p",
+                dp4_correct_scaling=None,
+                dp4_incorrect_scaling=None,
             )
 
-        return Cmeans, Cstdevs, Hmeans, Hstdevs
+        if not self.output_folder.exists():
+            self.output_folder.mkdir()
+
+        if not (self.output_folder / "dp4").exists():
+            (self.output_folder / "dp4").mkdir()
 
     def __call__(self, mols):
-        """Compute DP4 probability for the molecules
-        return dictionary containing the data?
-        """
-        if len(mols) < 2:
-            logger.warn("DP4 score requires multiple candidate structures.")
-        logger.info("Starting DP4 analysis")
-        dp4_dicts = DP4Data(mols, self.save_dir / "data_dic.p")
-        C_data = []
-        H_data = []
-        keys = [
-            "{0}labels",
-            "{0}shifts",
-            "{0}scaled",
-            "{0}exp",
-            "{0}errors",
-            "{0}probs",
-        ]
-        H_keys = [i.format("H") for i in keys]
-        C_keys = [i.format("C") for i in keys]
-        for mol in mols:
-            mol_dict = dict()
+        """Runs DP4 calculations.
 
-            *H_metadata, H_dp4 = self.dp4_proton(mol.H_shifts, mol.H_exp, mol.H_labels)
-            H_dict = {k: v for k, v in zip(H_keys, H_metadata)}
-            mol_dict.update(H_dict)
-            H_data.append(H_dp4)
-
-            *C_metadata, C_dp4 = self.dp4_carbon(mol.C_shifts, mol.C_exp, mol.C_labels)
-            C_dict = {k: v for k, v in zip(C_keys, C_metadata)}
-            mol_dict.update(C_dict)
-            C_data.append(C_dp4)
-
-            dp4_dicts.append(mol_dict)
-
-        C_data = np.array(C_data)
-        H_data = np.array(H_data)
-        total_data = C_data * H_data
-
-        dp4_dicts.CDP4probs = C_data / C_data.sum()
-        dp4_dicts.HDP4probs = H_data / H_data.sum()
-        dp4_dicts.DP4probs = total_data / total_data.sum()
-
-        logger.info("Saving raw DP4 data")
-        dp4_dicts.save()
-        return dp4_dicts.output
-
-    def dp4_proton(self, calculated, experimental, labels):
-        """Generates unscaled DP4 score for protons in the molecule.
         Arguments:
-         calculated: scaled calculated NMR shifts
-         experimental: experimental NMR shifts
-         labels: atom labels, match the SD File numbering
-        returns:
-         scaled calculated NMR shifts used in the analysis
-         experimental NMR shifts used in the analysis
-         atom labels used in the analysis
-         atomic errors
-         probabilities
-         DP4 scores
+          mols: Molecule objects
         """
-        return self._dp4(calculated, experimental, labels, self.H_probability)
-
-    def dp4_carbon(self, calculated, experimental, labels):
-        """Generates unscaled DP4 score for carbons in the molecule.
-        Arguments:
-         calculated: scaled calculated NMR shifts
-         experimental: experimental NMR shifts
-         labels: atom labels, match the SD File numbering
-        returns:
-         scaled calculated NMR shifts used in the analysis
-         experimental NMR shifts used in the analysis
-         atom labels used in the analysis
-         atomic errors
-         probabilities
-         DP4 scores
-        """
-        return self._dp4(calculated, experimental, labels, self.C_probability)
-
-    def _dp4(self, calculated: list, experimental: list, labels: list, probability):
-        """Generates unscaled DP4 score for nuclei in the molecule.
-        Arguments:
-         calculated: scaled calculated NMR shifts
-         experimental: experimental NMR shifts
-         labels: atom labels, match the SD File numbering
-         probability(function): returns the number
-        returns:
-         scaled calculated NMR shifts used in the analysis
-         experimental NMR shifts used in the analysis
-         atom labels used in the analysis
-         atomic errors
-         probabilities
-         DP4 scores
-        """
-        # remove calculated peaks that do not match the signal
-        has_exp = np.isfinite(experimental)
-
-        new_calcs = calculated[has_exp]
-        new_exps = experimental[has_exp]
-        new_labs = labels[has_exp]
-
-        new_scaled = scale_nmr(new_calcs, new_exps)
-        errors = new_scaled - new_exps
-        probs = probability(errors)
-        # take the product of probabilities
-        dp4_score = prod(probs, start=1)
-        return new_labs, new_calcs, new_scaled, new_exps, errors, probs, dp4_score
+        data_dic_path = self.output_folder / "dp4" / "data_dic.p"
+        dp4_data = DP4Data(mols, data_dic_path)
+        if dp4_data.exists:
+            logger.info("Found existing DP4 probability file")
+            dp4_data.load()
+        else:
+            logger.info("Calculating DP4 probabilites...")
+            (
+                dp4_data.Clabels,
+                dp4_data.Cshifts,
+                dp4_data.Cexp,
+                dp4_data.Cerrors,
+                dp4_data.Cconf_atom_probs,
+                dp4_data.atom_stds,
+                dp4_data.CDP4_atom_probs,
+                dp4_data.CDP4_mol_probs,
+            ) = self.C_DP4(mols)
+            dp4_data.save()
+        return dp4_data.output
 
 
 class DP4ProbabilityCalculator:
-    """Estimates DP4 probability for a given nucleus."""
+    def __init__(
+        self,
+        atom_type,
+        model_file,
+        batch_size,
+        transform_file,
+        kde_file,
+        dp4_correct_scaling=None,
+        dp4_incorrect_scaling=None,
+    ):
+        """Initialises DP4 Probability calculator for one atom.
 
-    def __init__(self, mean, stdev):
-        if isinstance(mean, list) and isinstance(stdev, list):
-            # the check is redundant
-            # see assert statement in DP4.read_parameters
-            if len(mean) != len(stdev):
-                raise ValueError(
-                    "Dimensions of mean and standard deviation do not match"
-                )
-            if len(mean) > 1:
-                self.probability = lambda error: self.multiple_gaussian(
-                    error, mean, stdev
-                )
-            else:
-                self.probability = lambda error: self.single_gaussian(
-                    error, mean[0], stdev[0]
-                )
-        elif isinstance(mean, float) and isinstance(stdev, float):
-            self.probability = lambda error: self.single_gaussian(error, mean, stdev)
-        else:
-            raise TypeError("Types of mean and standard deviation do not match!")
+        Arguments:
+          atom_type (str): atom symbol. Can be 'C' or 'H'
+          model_file (str): path for representation generating model to load.
+          batch_size (int): batch size for the model.
+          transform_file (str): Path to the Scikit-learn PCA file relative to ``dp4/analysis`` folder. Reduces dimensionality of the representation.
+          kde_file (str): Path to :py:obj:`scipy.stats.gaussian_kde` or :py:obj:`sklearn.neighbors.KernelDensity` object. Estimates DP4 probabilities
+          dp4_correct_scaling (str). Path to :py:obj:`scipy.stats.gaussian_kde` or :py:obj:`sklearn.neighbors.KernelDensity` object. Estimates :math:`P(correct|structure)` for rescaling. Default is None (no scaling)
+          dp4_incorrect_scaling (str). Path to :py:obj:`scipy.stats.gaussian_kde` or :py:obj:`sklearn.neighbors.KernelDensity` object. Estimates :math:`P(incorrect|structure)` for rescaling. Default is None (no scaling)
 
-    def __call__(self, error):
-        # numpy is weird about arrays out of single floats
-        dp4_score = np.apply_along_axis(
-            self.probability, 0, np.array(error, dtype=np.float32)
+        """
+        self.atom_type = atom_type
+        self.model = build_model(model_file=model_file)
+        self.batch_size = batch_size
+        self.transform = _load_pickle(transform_file)
+        self.kde = KernelDensityEstimator(kde_file)
+        if dp4_correct_scaling is not None:
+            self.dp4_correct_kde = KernelDensityEstimator(dp4_correct_scaling)
+        if dp4_incorrect_scaling is not None:
+            self.dp4_incorrect_kde = KernelDensityEstimator(dp4_incorrect_scaling)
+
+    @abstractmethod
+    def rescale_probabilities(self, mol_probs, errors, error_threshold=2):
+        """
+        Aggregates atomic probabilities.
+
+        Computes the product of atomic probabilities to generate final molecular probabilities.
+        Then normalizes the probabilities so they sum to 1.
+        """
+        total_probs = np.array([np.nanprod(arr[~np.isnan(arr)]) for arr in mol_probs])
+        logger.info(total_probs)
+        normalized_probs = total_probs / np.sum(total_probs)
+        return mol_probs, normalized_probs
+
+    @abstractmethod
+    def kde_probfunction(self, df):
+        return NotImplementedError("KDE sampling function not implemented")
+
+    @staticmethod
+    def boltzmann_weight(df, col):
+        return df.groupby("mol_id")[["conf_population", col]].apply(
+            lambda x: (x[col] * x["conf_population"]).sum()
         )
-        return dp4_score
 
-    @staticmethod
-    def single_gaussian(error, mean, stdev):
-        z = abs((error - mean) / stdev)
-        cdp4 = 2 * stats.norm.cdf(-z)
+    def __call__(self, mols):
+        """Carries out DP4 analysis.
 
-        return cdp4
+        Arguments:
+          mols(list of :py:class:`~dp4.run.data_structures.Molecule`): :py:class:`dp4.run.data_structures.Molecule` objects used in the calculation. Must contain shifts and labels for the provided atom.
 
-    @staticmethod
-    def multiple_gaussian(error, means, stdevs):
-        res = 0
-        for mean, stdev in zip(means, stdevs):
-            res += stats.norm(mean, stdev).pdf(error)
+        Returns:
+          A tuple containing lists of labels of atoms used in the analysis,
+          their calculated shifts, their experimental shifts,
+          scaled errors, DP4 probabilities for each atom in each conformer,
+          Boltzmann-weighted atom DP4 probabilites, and total molecular DP4 probabilities.
+        """
+        all_labels = []
+        rep_df = []
+        for mol_id, mol in enumerate(mols):
+            calculated, experimental, labels, indices = self.get_shifts_and_labels(mol)
+            # # drop unassigned !
+            # has_exp = np.isfinite(experimental)
+            # new_calcs = calculated[:, has_exp]
+            # new_exps = experimental[has_exp]
+            # new_labs = labels[has_exp]
+            # new_inds = indices[has_exp]
+            
+            # don't drop unassigned, as we're re-doing it with quantile regression model
+            new_calcs = calculated
+            new_exps = experimental
+            new_labs = labels
+            new_inds = indices
 
-        return res / len(means)
+            # placeholder: calculate these again after assigning with quantile regression model
+            corrected_errors = calculated - new_exps[np.newaxis, :]
+
+            all_labels.append(new_labs)
+
+            rep_df.append(
+                (
+                    mol_id,
+                    range(mol.conformers.shape[0]),
+                    mol.rdkit_mols,
+                    new_inds,
+                    mol.populations,
+                    new_calcs,
+                    new_exps,
+                    corrected_errors,
+                )
+            )
+
+        rep_df = pd.DataFrame(
+            rep_df,
+            columns=[
+                "mol_id",
+                "conf_id",
+                "Mol",
+                "atom_index",
+                "conf_population",
+                "conf_shifts",
+                "exp_shifts",
+                "errors",
+            ],
+        )
+        # each row of dataframe represents a geometry
+        rep_df = rep_df.explode(
+            ["conf_id", "Mol", "conf_shifts", "conf_population", "errors"],
+            ignore_index=True,
+        )
+        logger.info("Extracting atomic representations")
+        # now return full representations! These are now grouped by conformer
+        rep_df["representations"] = extract_representations(
+            self.model, rep_df, self.batch_size
+        )
+        logger.info("Extracting atomic representations")
+        rep_df["representations"] = extract_representations(
+            self.model, rep_df, self.batch_size
+        )
+        
+        logger.info("Generating atomic cdfs using quantile regression model")
+        atom_index_col = rep_df['atom_index']
+        quantiles, mus, sigmas = generate_quantiles(rep_df["representations"], atom_index_col)
+        quantiles = [np.array(quantile) for quantile in quantiles]
+        mus = [np.array(mu) for mu in mus]
+        sigmas = [np.array(sigma) for sigma in sigmas]
+        rep_df['quantiles'] = quantiles
+        rep_df['mu'] = mus
+        rep_df['sigma'] = sigmas
+
+        logger.info("Assigning shifts and estimating atomic probabilities")
+        
+        # Vectorized operations
+        assignments = [
+            np.array(probability_assignment(row['exp_shifts'], row['mu'], row['sigma']))
+            for _, row in rep_df.iterrows()
+        ]
+
+        # assignments = np.array([
+        #     matching_assignment(row['conf_shifts'], row['exp_shifts']) for _, row in rep_df.iterrows()
+        # ], dtype=np.float32)
+        
+        rep_df['exp_shifts'] = assignments
+        atom_probs = []
+        for assign, mu, sigma in zip(assignments, rep_df['mu'], rep_df['sigma']):
+            perc = norm.cdf(assign, mu, sigma)
+            probs = 1 - np.abs(1 - 2 * perc)
+            atom_probs.append(probs)
+        
+        rep_df['atom_probs'] = atom_probs
+        rep_df['errors'] = rep_df['exp_shifts'] - rep_df['mu']
+
+        # if any value in rep_df['conf_population'] is less than 1, return NotImplementedError
+        if rep_df['conf_population'].min() < 1:
+            raise NotImplementedError("Can't use Boltzmann weighting with probability_assignment, as not all conformers have the same atoms assigned.")
+
+            weighted_probs = self.boltzmann_weight(rep_df, "atom_probs")
+            weighted_errors = self.boltzmann_weight(rep_df, "errors")
+        else:
+            weighted_probs = rep_df['atom_probs']
+            weighted_errors = rep_df['errors']
+
+        cmae = weighted_errors.apply(lambda x: np.mean(np.abs(x)))
+
+        # rescale and aggregate probabilities
+        weighted_probs, total_probs = self.rescale_probabilities(weighted_probs, cmae)
+
+        calc_shifts_analysed = self.boltzmann_weight(rep_df, "mu")
+        exp_shifts_analysed = rep_df.groupby("mol_id")["exp_shifts"].first()
+
+        # eventually return atomic probs, weighted atomic probs, DP4 scores
+        logger.info("Atomic probabilities estimated")
+        return (
+            all_labels,
+            calc_shifts_analysed,
+            exp_shifts_analysed,
+            weighted_errors,
+            atom_probs,
+            rep_df['sigma'],
+            weighted_probs,
+            total_probs,
+        )
+
+    def get_shifts_and_labels(self, mol):
+        """
+        Returns calculated and experimental shifts for nuclei in the molecule.
+
+        Arguments:
+          self.atom_type(str): nuclei being analysed
+          mols(:py:class:`~dp4.run.data_structures.Molecule`): :py:class:`dp4.run.data_structures.Molecule`. Must contain shifts and labels for the provided atom.
+
+        Returns:
+          calculated conformer shifts
+          assigned experimental shifts
+          0-based indices of relevant atoms
+        """
+        at = self.atom_type
+        conformer_shifts = getattr(mol, "conformer_%s_pred" % at)
+        assigned_shifts = getattr(mol, "%s_exp" % at)
+        atom_labels = getattr(mol, "%s_labels" % at)
+        atom_indices = np.array([int(label[len(at) :]) - 1 for label in atom_labels])
+
+        return conformer_shifts, assigned_shifts, atom_labels, atom_indices
+
+
+class ErrorDP4ProbabilityCalculator(DP4ProbabilityCalculator):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def kde_probfunction(self, df):
+        # loop through atoms in the test molecule - generate kde for all of them.
+        # implement joblib parallel search
+        # check if this has been calculated
+
+        min_value = -20
+        max_value = 20
+        n_points = 250
+
+        x = np.linspace(min_value, max_value, n_points)
+
+        probs = []
+        with Parallel(prefer="threads", n_jobs=-1) as pool:
+            for i, (rep, errors) in tqdm(
+                df[["representations", "errors"]].iterrows(),
+                total=len(df),
+                desc="Computing error KDEs",
+                leave=True,
+            ):
+                num_atoms, num_components = rep.shape
+                rep_b = np.broadcast_to(
+                    rep[:, :, np.newaxis], shape=(num_atoms, num_components, n_points)
+                )
+                x_b = np.broadcast_to(
+                    x[np.newaxis, np.newaxis, :], shape=(num_atoms, 1, n_points)
+                )
+                point = np.concatenate((rep_b, x_b), axis=1)
+
+                results = pool(delayed(self.kde)(atom) for atom in point[:])
+
+                conf_probs = []
+                for pdf, error in zip(results, errors):
+                    integral = 0
+                    if pdf.sum() != 0:
+                        max_x = x[np.argmax(pdf)]
+
+                        low_point = max(min_value, max_x - abs(max_x - error))
+                        high_point = min(max_value, max_x + abs(max_x - error))
+
+                        low_bound = np.argmin(np.abs(x - low_point))
+                        high_bound = np.argmin(np.abs(x - high_point))
+
+                        bound_integral = np.sum(
+                            pdf[min(low_bound, high_bound) : max(low_bound, high_bound)]
+                        )
+                        integral = bound_integral / pdf.sum()
+                    conf_probs.append(integral)
+                probs.append(np.array(conf_probs))
+
+        return probs
+
+    def rescale_probabilities(self, mol_probs, errors, error_threshold=2):
+        _, total_probs = super().rescale_probabilities(mol_probs, errors)
+        scaled_probs = []
+        scaled_total = []
+        for prob, error, total in zip(mol_probs, errors, total_probs):
+            if error < error_threshold:
+                vector = np.concatenate((prob, np.atleast_1d(total)))
+                correct = self.dp4_correct_kde(vector)
+                incorrect = self.dp4_incorrect_kde(vector)
+                scaled = correct / (correct + incorrect)
+                scaled_probs.append(scaled[:-1])
+                scaled_total.append(scaled[-1])
+            else:
+                scaled_probs.append(prob)
+                scaled_total.append(total)
+        return scaled_probs, scaled_total
+
+
+class ExpDP4ProbabilityCalculator(DP4ProbabilityCalculator):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def kde_probfunction(self, df):
+        """Since the result is compared to the experimental shifts, weights the representations and runs KDE on those."""
+        # loop through atoms in the test molecule - generate kde for all of them.
+        total_reps = self.boltzmann_weight(df, "representations")
+        exp_data = df.groupby("mol_id")["exp_shifts"].first()
+        mol_df = pd.DataFrame({"representations": total_reps, "exp_shifts": exp_data})
+
+        min_value = 0
+        max_value = 250
+        n_points = 250
+
+        x = np.linspace(min_value, max_value, n_points)
+
+        mol_probs = []
+        with Parallel(prefer="threads", n_jobs=-1) as pool:
+            for i, (rep, exp) in tqdm(
+                mol_df[["representations", "exp_shifts"]].iterrows(),
+                total=len(mol_df),
+                desc="Computing experimental KDEs",
+                leave=True,
+            ):
+                num_atoms, num_components = rep.shape
+                rep_b = np.broadcast_to(
+                    rep[:, :, np.newaxis], shape=(num_atoms, num_components, n_points)
+                )
+                x_b = np.broadcast_to(
+                    x[np.newaxis, np.newaxis, :], shape=(num_atoms, 1, n_points)
+                )
+                point = np.concatenate((rep_b, x_b), axis=1)
+
+                results = pool(delayed(self.kde)(atom) for atom in point[:])
+
+                conf_probs = []
+                for pdf, value in zip(results, exp):
+                    integral = 0
+                    if pdf.sum() != 0:
+                        max_x = x[np.argmax(pdf)]
+
+                        low_point = max(min_value, max_x - abs(max_x - value))
+                        high_point = min(max_value, max_x + abs(max_x - value))
+
+                        low_bound = np.argmin(np.abs(x - low_point))
+                        high_bound = np.argmin(np.abs(x - high_point))
+
+                        bound_integral = np.sum(
+                            pdf[min(low_bound, high_bound) : max(low_bound, high_bound)]
+                        )
+                        integral = bound_integral / pdf.sum()
+                    conf_probs.append(integral)
+                mol_probs.append(np.array(conf_probs))
+        consistency_hack = {i: probs for i, probs in enumerate(mol_probs)}
+        consistent_probs = df["mol_id"].map(consistency_hack)
+        return consistent_probs
+
+    def rescale_probabilities(self, *args, **kwargs):
+        return super().rescale_probabilities(*args, **kwargs)
+
+
+class KernelDensityEstimator:
+    def __init__(self, path_to_pickle):
+        self.estimator = _load_pickle(path_to_pickle)
+        if type(self.estimator) is gaussian_kde:
+            self.evaluate = self._scipy_estimator
+        elif type(self.estimator) is KernelDensity:
+            self.evaluate = self._sklearn_estimator
+
+    def __call__(self, data):
+        return self.evaluate(data)
+
+    def _scipy_estimator(self, data):
+        return self.estimator(data)
+
+    def _sklearn_estimator(self, data):
+        return self.estimator.score_samples(data.T)
 
 
 class DP4Data(AnalysisData):
-    """Collates DP4 Analysis Data. Saves it as a pickle file and returns text summary for printing."""
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
     @property
     def output(self):
+        """Uncomment when H-DP4 is implemented"""
         output_dict = dict()
         output_dict["C_output"] = []
-        output_dict["H_output"] = []
+        # output_dict["H_output"] = []
         output_dict["CDP4_output"] = []
-        output_dict["HDP4_output"] = []
-        output_dict["DP4_output"] = []
-
-        for mol, clab, cshift, cscal, cexp, cerr in zip(
-            self.mols, self.Clabels, self.Cshifts, self.Cscaled, self.Cexp, self.Cerrors
+        # output_dict["HDP4_output"] = []
+        # output_dict["DP4_output"] = []
+        for mol, clab, cshift, cexp, cerr, cpr, csigma in zip(
+            self.mols,
+            self.Clabels,
+            self.Cshifts,
+            self.Cexp,
+            self.Cerrors,
+            self.CDP4_atom_probs,
+            self.atom_stds,
         ):
             output = f"\nAssigned C NMR shift for {mol}:"
-            output += self.print_assignment(clab, cshift, cscal, cexp, cerr)
+            output += self.print_assignment(clab, cshift, cexp, cerr, cpr, csigma)
             output_dict["C_output"].append(output)
 
-        for mol, hlab, hshift, hscal, hexp, herr in zip(
-            self.mols, self.Hlabels, self.Hshifts, self.Hscaled, self.Hexp, self.Herrors
-        ):
-            output = f"\nAssigned H NMR shift for {mol}:"
-            output += self.print_assignment(hlab, hshift, hscal, hexp, herr)
-            output_dict["H_output"].append(output)
-        for mol, hdp4, cdp4, dp4 in zip(
-            self.mols, self.HDP4probs, self.CDP4probs, self.DP4probs
-        ):
-            output_dict["HDP4_output"].append(
-                f"Proton DP4 probability for {mol}: {hdp4}"
-            )
+        # for mol, hlab, hshift, hscal, hexp, herr in zip(
+        #    self.mols, self.Hlabels, self.Hshifts, self.Hscaled, self.Hexp, self.Herrors
+        # ):
+        #    output = f"\nAssigned H NMR shift for {mol}:"
+        #    output += self.print_assignment(hlab, hshift, hscal, hexp, herr)
+        #    output_dict["H_output"].append(output)
+
+        for mol, cdp4 in zip(self.mols, self.CDP4_mol_probs):
             output_dict["CDP4_output"].append(
                 f"Carbon DP4 probability for {mol}: {cdp4}"
             )
-            output_dict["DP4_output"].append(f"DP4 probability for {mol}: {dp4}")
-
         t_dic = [
             dict(zip(output_dict.keys(), values))
             for values in zip(*output_dict.values())
         ]
-        dp4_output = "\n\n".join([mol["C_output"] + mol["H_output"] for mol in t_dic])
-        dp4_output += "\n\n"
-        dp4_output += "\n".join([mol["HDP4_output"] for mol in t_dic])
+        dp4_output = "\n\n".join([mol["C_output"] for mol in t_dic])
         dp4_output += "\n\n"
         dp4_output += "\n".join([mol["CDP4_output"] for mol in t_dic])
-        dp4_output += "\n\n"
-        dp4_output += "\n".join([mol["DP4_output"] for mol in t_dic])
-
         return dp4_output
 
     @staticmethod
-    def print_assignment(labels, calculated, scaled, exp, error):
+    def print_assignment(labels, calculated, exp, error, probs, sigma):
         """Prints table for molecule"""
 
         s = np.argsort(calculated)
         svalues = calculated[s]
         slabels = labels[s]
-        sscaled = scaled[s]
         sexp = exp[s]
         serror = error[s]
+        sprob = probs[s]
+        ssigma = sigma[s]
+        deviations = np.abs(serror / ssigma)
 
-        output = f"\nlabel, calc, corrected, exp, error"
-
-        for lab, calc, scal, ex, er in zip(slabels, svalues, sscaled, sexp, serror):
-            output += f"\n{lab:6s} {calc:6.2f} {scal:6.2f} {ex:6.2f} {er:6.2f}"
+        output = "\n{:6s} {:>6s} {:>6s} {:>6s} {:>6s} {:>6s} {:>6s}".format(
+            "label", "calc", "exp", "error", "sigma", "deviation", "prob"
+        )
+        for lab, calc, ex, er, p, s, d in zip(slabels, svalues, sexp, serror, sprob, ssigma, deviations):
+            if np.isnan(d):
+                output += "\n{:6s} {:6.2f} {:>6.2s} {:>6.2s} {:6.2f} {:>6s} {:>6s}".format(
+                    lab, calc, "-", "-", s, "-", "-"
+                )
+            else:
+                output += "\n{:6s} {:6.2f} {:6.2f} {:6.2f} {:6.2f} {:6.2f}σ {:6.2f}".format(
+                    lab, calc, ex, er, s, d, p
+                )
         return output
+
+
+def _load_pickle(path: str):
+    """
+    Loads a pickled object from relative or absolute path.
+    Searches within this folder first, then within current folder, then by absolute path.
+
+    Arguments
+      path(str): path to the pickled file
+
+    Returns
+      Loaded object
+    """
+    _abs_path = Path(path).resolve()
+    _default_path = Path(__file__).parent / path
+
+    if _default_path.exists():
+        _path = _default_path
+    elif _abs_path.exists():
+        _path = _abs_path
+    else:
+        raise FileNotFoundError("No files found at %s" % (path))
+    with open(_path, "rb") as f:
+        return pickle.load(f)
