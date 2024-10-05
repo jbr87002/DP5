@@ -126,7 +126,7 @@ def probability_assignment(spectrum, mus, sigmas):
         for j, (mu, sigma) in enumerate(zip(mus, sigmas)):
             perc = norm.cdf(shift, mu, sigma)
             prob = 1 - np.abs(1 - 2 * perc)
-            prob_matrix[j, i] = prob if not np.isnan(prob) else 0
+            prob_matrix[j, i] = np.log(prob + 1e-10) if not np.isnan(prob) else 0
     
     # find optimal assignment
     row_ind, col_ind = linear_sum_assignment(prob_matrix, maximize=True)

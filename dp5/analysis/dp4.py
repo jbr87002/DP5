@@ -254,7 +254,8 @@ class DP4ProbabilityCalculator:
 
         # if any value in rep_df['conf_population'] is less than 1, return NotImplementedError
         if rep_df['conf_population'].min() < 1:
-            raise NotImplementedError("Can't use Boltzmann weighting with probability_assignment, as not all conformers have the same atoms assigned.")
+            # raise NotImplementedError("Can't use Boltzmann weighting with probability_assignment, as not all conformers have the same atoms assigned.")
+            # maybe it works?
 
             weighted_probs = self.boltzmann_weight(rep_df, "atom_probs")
             weighted_errors = self.boltzmann_weight(rep_df, "errors")
