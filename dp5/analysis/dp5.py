@@ -35,7 +35,7 @@ class DP5:
 
         if use_dft_shifts:
             # must load model for error prediction
-            self.C_DP5 = ErrorDP5P2robabilityCalculator(
+            self.C_DP5 = ErrorDP5ProbabilityCalculator(
                 atom_type="C",
                 model_file="NMRdb-CASCADEset_Error_mean_model_atom_features256.hdf5",
                 batch_size=16,
