@@ -18,7 +18,7 @@ maintainers = [
 
 dependencies = [
         "tomli",
-        "numpy",
+        "numpy<2",
         "rdkit",
         "lmfit",
         "matplotlib",
