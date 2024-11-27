@@ -66,21 +66,17 @@ class DP5:
         """
         data_dic_path = self.output_folder / "dp5" / "data_dic.p"
         dp5_data = DP5Data(mols, data_dic_path)
-        if dp5_data.exists:
-            logger.info("Found existing DP5 probability file")
-            dp5_data.load()
-        else:
-            logger.info("Calculating DP5 probabilites...")
-            (
-                dp5_data.Clabels,
-                dp5_data.Cshifts,
-                dp5_data.Cexp,
-                dp5_data.Cerrors,
-                dp5_data.Cconf_atom_probs,
-                dp5_data.CDP5_atom_probs,
-                dp5_data.CDP5_mol_probs,
-            ) = self.C_DP5(mols)
-            dp5_data.save()
+        logger.info("Calculating DP5 probabilites...")
+        (
+            dp5_data.Clabels,
+            dp5_data.Cshifts,
+            dp5_data.Cexp,
+            dp5_data.Cerrors,
+            dp5_data.Cconf_atom_probs,
+            dp5_data.CDP5_atom_probs,
+            dp5_data.CDP5_mol_probs,
+        ) = self.C_DP5(mols)
+        dp5_data.save()
         return dp5_data.output
 
 
