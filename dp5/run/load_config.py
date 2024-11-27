@@ -14,9 +14,13 @@ from pathlib import Path
 import argparse
 import os
 import logging
+import absl.logging
 import tomli
 import json
 from dp5.run import runner, setup_logger, prepare_inputs
+
+# Suppress abseil logging warnings
+absl.logging.set_verbosity(absl.logging.ERROR)
 
 LOGLEVEL_CHOICES = tuple(level.lower() for level in logging._nameToLevel.keys())
 DEFAULT_BASE_CONFIG_PATH = (Path(__file__).parent.parent / "config/default_config.toml").resolve()
