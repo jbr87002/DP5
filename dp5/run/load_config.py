@@ -124,7 +124,7 @@ def run_workflow(structure_files, nmr_file, config_path=DEFAULT_BASE_CONFIG_PATH
     logger.info(f"Final structure input files:{config['structure']}")
     logger.info(f"NMR input paths:{config['nmr_file']}")
 
-    with open(config["output_folder"] / "config.json", "w") as f:
+    with open(config["output_folder"] / "pydp4_config.json", "w") as f:
         cfg = config.copy()
         cfg["output_folder"] = str(cfg["output_folder"])
         json.dump(cfg, f, indent=4)
