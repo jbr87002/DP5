@@ -431,7 +431,7 @@ class ExpDP5ProbabilityCalculator(DP5ProbabilityCalculator):
 
 class QuantileDP5ProbabilityCalculator(DP5ProbabilityCalculator):
     def __init__(
-        self, atom_type, model_file, batch_size, quantile_regressor="quantile99.zip"
+        self, atom_type, model_file, batch_size
     ):
         super().__init__(atom_type)
         self.model = load_quantile_model(model_file)
