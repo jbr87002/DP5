@@ -17,6 +17,7 @@ import logging
 import absl.logging
 import tomli
 import json
+from dp5.config.config_util import convert_paths_to_strings
 from dp5.run import runner, setup_logger, prepare_inputs
 
 # Suppress abseil logging warnings
@@ -119,6 +120,7 @@ def run_workflow(structure_files, nmr_file, config_path=DEFAULT_BASE_CONFIG_PATH
         config["input_type"],
         config["stereocentres"],
         config["workflow"],
+        config["output_folder"]
     )
 
     logger.info(f"Final structure input files:{config['structure']}")
@@ -126,7 +128,7 @@ def run_workflow(structure_files, nmr_file, config_path=DEFAULT_BASE_CONFIG_PATH
 
     with open(config["output_folder"] / "pydp4_config.json", "w") as f:
         cfg = config.copy()
-        cfg["output_folder"] = str(cfg["output_folder"])
+        convert_paths_to_strings(cfg)
         json.dump(cfg, f, indent=4)
 
     logger.info("Configuration saved to %s" % str(config["output_folder"]))

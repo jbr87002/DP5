@@ -9,21 +9,20 @@ from rdkit.Chem import AllChem, EnumerateStereoisomers
 logger = logging.getLogger(__name__)
 
 
-def write_to_sdf(mol: Chem.rdchem.Mol, relative_path: Path):
+def write_to_sdf(mol: Chem.rdchem.Mol, path: Path):
     """
     Writes rdkit Mol object to a specified path
 
     arguments:
     - mol: RDKit Mol object
-    - relative_path: path to write the file
+    - path: absolute path to write the file
 
     returns:
     - input_file: relative path to file from current working directory
     """
-    path = Path.cwd() / relative_path
     writer = Chem.SDWriter(str(path))
     writer.write(mol)
-    return relative_path
+    return path
 
 
 def cleanup_3d(mol):
@@ -160,7 +159,7 @@ def _generate_diastereomers(
 
 
 def prepare_inputs(
-    input_files: List[str], input_type: str, stereocentres: List[int], workflow: Dict
+    input_files: List[str], input_type: str, stereocentres: List[int], workflow: Dict, output_folder: Path
 ) -> List[str]:
     """
     Reads files at the path specified by input config, prepares them as required by the user. Returns paths to the new files.
@@ -170,6 +169,7 @@ def prepare_inputs(
     - input_type (str): format of the input file. May be 'sdf', 'smiles', 'inchi', and 'smarts'.
     - stereocentres (list[int]): specifies mutable stereocentres. Defaults to empty list
     - workflow (dict): dictionary of booleans specifying the workflow.
+    - output_folder (Path): absolute path to the output folder
 
     Returns:
     - mol_paths (list[str]): paths to the transformed files
@@ -218,7 +218,9 @@ def prepare_inputs(
                 fname = f"{filename[:-4]}.sdf"
             else:
                 fname = f"{filename[:-4]}isomer{i:03}.sdf"
-            filenames.append(fname)
-            write_to_sdf(isomer, fname)
+            file_path = Path(output_folder) / fname
+            filenames.append(str(file_path))
+            write_to_sdf(isomer, file_path)
 
     return filenames
+
