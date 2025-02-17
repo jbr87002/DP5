@@ -328,7 +328,7 @@ def load_quantile_model(
     return model
 
 
-def get_shifts_and_labels(mols, atomic_symbol, model_path, batch_size=16):
+def get_shifts_and_labels_cascade(mols, atomic_symbol, model_path, batch_size=16):
     model = load_NMR_prediction_model(model_path)
     logger.info("Loaded NMR prediction model")
     all_shifts = []

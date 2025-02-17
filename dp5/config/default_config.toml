@@ -97,6 +97,9 @@ start_time = "" # set automatically
 
 max_concurrent_jobs = 75 # 75 on Ziggy, 320 on Darwin
 
+[nn_model]
+model = "cascade" # accepts "cascade" or "sgnn"
+
 [dp4]
 
 stats_model = "g"
