@@ -51,13 +51,11 @@ def _parse_description(exp):
 def pairwise_assignment(calculated, experimental: list):
     sorted_calc = sorted(calculated, reverse=True)
     sorted_exp = sorted(experimental, reverse=True)
-    print(f'calculated: {calculated}')
     assigned = [None] * len(calculated)
 
     for calc, exp in zip(sorted_calc, sorted_exp):
         index = list(calculated).index(calc)
         assigned[index] = exp
-    print(f'assigned: {assigned}')
 
     return assigned
 
