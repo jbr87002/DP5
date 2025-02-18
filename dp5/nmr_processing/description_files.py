@@ -56,6 +56,8 @@ def pairwise_assignment(calculated, experimental: list):
     for calc, exp in zip(sorted_calc, sorted_exp):
         index = list(calculated).index(calc)
         assigned[index] = exp
+    
+    print(f'assigned: {assigned}')
 
     return assigned
 
