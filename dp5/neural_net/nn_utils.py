@@ -20,8 +20,6 @@ def get_nn_shifts(mols, batch_size=16, model='cascade'):
     """
 
     C_shifts, C_labels = predict_C_shifts(mols, batch_size, model)
-    print(f'C_shifts: {C_shifts}')
-    print(f'C_labels: {C_labels}')
 
     H_shifts, H_labels = predict_H_shifts(mols, batch_size, model)
 

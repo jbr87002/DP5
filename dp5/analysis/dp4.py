@@ -115,7 +115,10 @@ class DP4:
             print(f'C exp: {mol.C_exp}')
             print(f'C labels: {mol.C_labels}')
 
-            *C_metadata, C_dp4 = self.dp4_carbon(mol.C_shifts, mol.C_exp, mol.C_labels)
+            median_idx = len(mol.C_shifts[0]) // 2
+            median_C_shifts = np.array([shift[median_idx] for shift in mol.C_shifts])
+
+            *C_metadata, C_dp4 = self.dp4_carbon(median_C_shifts, mol.C_exp, mol.C_labels)
             C_dict = {k: v for k, v in zip(C_keys, C_metadata)}
             mol_dict.update(C_dict)
             C_data.append(C_dp4)
@@ -149,7 +152,7 @@ class DP4:
          DP4 scores
         """
         if not calculated or not experimental:
-            return None, None
+            return 
         return self._dp4(calculated, experimental, labels, self.H_probability)
 
     def dp4_carbon(self, calculated, experimental, labels):
@@ -186,6 +189,9 @@ class DP4:
         # remove calculated peaks that do not match the signal
         has_exp = np.isfinite(experimental)
 
+        print(f'calculated: {calculated}')
+        print(f'experimental: {experimental}')
+        print(f'labels: {labels}')
         new_calcs = calculated[has_exp]
         new_exps = experimental[has_exp]
         new_labs = labels[has_exp]
