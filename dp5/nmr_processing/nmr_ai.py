@@ -160,9 +160,7 @@ class NMRData:
             H_exp = proton_assignment(self.protondata, _mol, H_shifts, H_labels)
             plot_proton(self.protondata, self.output_folder, mol, H_exp)
         elif hasattr(self, "H_exp"):
-            print('triggered')
             H_exp = pairwise_assignment(H_shifts, self.H_exp)
-        print(f'H exp: {H_exp}')
 
         if self.carbondata:
             C_exp = carbon_assignment(self.carbondata, _mol, C_shifts, C_labels)
