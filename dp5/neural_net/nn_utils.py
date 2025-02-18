@@ -31,7 +31,7 @@ def get_nn_shifts(mols, batch_size=16, model='cascade'):
 def predict_C_shifts(mols, batch_size, model):
     model_paths = {
         "cascade": "NMRdb-CASCADEset_Exp_mean_model_atom_features256.hdf5",
-        "sgnn": "sgnn_13c.npz.pt"
+        "sgnn": "sgnn_13c.pt"
     }
     if model == 'cascade':
         return get_shifts_and_labels_cascade(
