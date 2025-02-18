@@ -52,6 +52,9 @@ def pairwise_assignment(calculated, experimental: list):
     sorted_calc = sorted(calculated, reverse=True)
     sorted_exp = sorted(experimental, reverse=True)
     assigned = [None] * len(calculated)
+    print(len(calculated))
+    print(f'calculated: {calculated}')
+    print(f'assigned: {assigned}')
 
     for calc, exp in zip(sorted_calc, sorted_exp):
         index = list(calculated).index(calc)
