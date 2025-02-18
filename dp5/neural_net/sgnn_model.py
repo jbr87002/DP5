@@ -118,13 +118,14 @@ def predict_shifts(model, test_df, train_y_mean, train_y_std, batch_size=16):
     """
     Predicts shifts for molecules in test_df using SGNN model
     Arguments:
-    - model: loaded SGNN model
-    - test_df: DataFrame with mol_id, conf_id, Mol, atom_index columns
+    - model: trained model
+    - loader: DataLoader with test data
     - train_y_mean: mean of training targets
     - train_y_std: std of training targets
     - batch_size: batch size for predictions
     Returns:
-    - list of lists of predicted shifts for each molecule
+    - predictions: numpy array of predictions
+    - time_per_mol: average time per molecule
     """
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
@@ -135,6 +136,9 @@ def predict_shifts(model, test_df, train_y_mean, train_y_std, batch_size=16):
         'src': [], 'dst': [], 'shift': [], 'mask': [], 'smi': []
     }
     
+    # Count total number of atoms for validation
+    
+    total_atoms = 0
     for _, row in test_df.iterrows():
         mol = row['Mol']
         atom_indices = row['atom_index']
@@ -145,6 +149,7 @@ def predict_shifts(model, test_df, train_y_mean, train_y_std, batch_size=16):
             atom.SetBoolProp('mask', True)
         
         mol = Chem.RemoveHs(mol)
+        total_atoms += len(mol.GetAtoms())
         mol_dict = add_mol_sparsified_graph(mol_dict, mol, '13C')
     
     # Convert lists to numpy arrays
@@ -168,15 +173,30 @@ def predict_shifts(model, test_df, train_y_mean, train_y_std, batch_size=16):
     
     # Get predictions
     predictions, _ = inference(model, loader, train_y_mean, train_y_std, n_forward_pass=5, device=device)
+
+    # Validate number of predictions
+    if len(predictions) != total_atoms:
+        raise ValueError(f'Number of predictions ({len(predictions)}) does not match number of atoms ({total_atoms})')
+    
+    # Calculate indices for median and quartiles
+    quantiles = np.linspace(0.005, 0.995, 100)
+    median_idx = np.argmin(np.abs(quantiles - 0.5))
+    lower_idx = np.argmin(np.abs(quantiles - 0.25))
+    upper_idx = np.argmin(np.abs(quantiles - 0.75))
     
     # Reshape predictions to match input format
     predictions_by_mol = []
-    start_idx = 0
+    shift_count = 0
+
     for mol_id, group in test_df.groupby('mol_id'):
-        n_atoms = len(group['atom_index'].iloc[0])
-        mol_preds = predictions[start_idx:start_idx + n_atoms]
-        predictions_by_mol.append(mol_preds)
-        start_idx += n_atoms
+        mol = group['Mol'].iloc[0]
+        mol = Chem.RemoveHs(mol)
+        mol_predictions = []
+        atom_count = len(mol.GetAtoms())
+        mol_predictions = predictions[shift_count:shift_count + atom_count]
+        
+        
+        predictions_by_mol.append(mol_predictions)
     
     return predictions_by_mol
 
@@ -196,5 +216,16 @@ def get_shifts_and_labels_sgnn(mols, atomic_symbol, model_path, batch_size=16):
     logger.info(f"Ready to predict shifts for {atomic_symbol}")
     all_shifts = predict_shifts(model, all_df, train_y_mean, train_y_std, batch_size=batch_size)
 
-    return all_shifts, all_labels
+    # Filter shifts based on labels
+    filtered_shifts = []
+    for mol_shifts, mol_labels in zip(all_shifts, all_labels):
+        # Convert labels like 'C2' to indices (subtract 1 to get 0-based index)
+        indices = [int(label[1:]) - 1 for label in mol_labels]
+        
+        # Create boolean mask for the atoms we want to keep
+        mol_shifts = np.array(mol_shifts)
+        filtered_mol_shifts = mol_shifts[indices]
+        filtered_shifts.append(filtered_mol_shifts)
+
+    return filtered_shifts, all_labels
 

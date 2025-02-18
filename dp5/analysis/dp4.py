@@ -111,6 +111,10 @@ class DP4:
             mol_dict.update(H_dict)
             H_data.append(H_dp4)
 
+            print(f'C shifts: {mol.C_shifts}')
+            print(f'C exp: {mol.C_exp}')
+            print(f'C labels: {mol.C_labels}')
+
             *C_metadata, C_dp4 = self.dp4_carbon(mol.C_shifts, mol.C_exp, mol.C_labels)
             C_dict = {k: v for k, v in zip(C_keys, C_metadata)}
             mol_dict.update(C_dict)
@@ -144,6 +148,8 @@ class DP4:
          probabilities
          DP4 scores
         """
+        if not calculated or not experimental:
+            return None, None
         return self._dp4(calculated, experimental, labels, self.H_probability)
 
     def dp4_carbon(self, calculated, experimental, labels):
