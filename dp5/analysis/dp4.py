@@ -106,6 +106,7 @@ class DP4:
         for mol in mols:
             mol_dict = dict()
 
+            print(f'H exp: {mol.H_exp}')
             *H_metadata, H_dp4 = self.dp4_proton(mol.H_shifts, mol.H_exp, mol.H_labels)
             H_dict = {k: v for k, v in zip(H_keys, H_metadata)}
             mol_dict.update(H_dict)
@@ -151,8 +152,6 @@ class DP4:
          probabilities
          DP4 scores
         """
-        if not calculated or not experimental:
-            return 
         return self._dp4(calculated, experimental, labels, self.H_probability)
 
     def dp4_carbon(self, calculated, experimental, labels):
@@ -189,9 +188,6 @@ class DP4:
         # remove calculated peaks that do not match the signal
         has_exp = np.isfinite(experimental)
 
-        print(f'calculated: {calculated}')
-        print(f'experimental: {experimental}')
-        print(f'labels: {labels}')
         new_calcs = calculated[has_exp]
         new_exps = experimental[has_exp]
         new_labs = labels[has_exp]

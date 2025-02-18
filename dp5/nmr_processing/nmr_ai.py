@@ -168,6 +168,8 @@ class NMRData:
         elif hasattr(self, "C_exp"):
             C_exp = matching_assignment(C_shifts, self.C_exp, threshold=40)
 
+        print(f'C exp: {C_exp}')
+        print(f'H exp: {H_exp}')
         return C_exp, H_exp
 
     def __call__(self, mol):
