@@ -83,6 +83,8 @@ class DP5:
                 dp5_data.Cexp,
                 dp5_data.Cerrors,
                 dp5_data.Cconf_atom_probs,
+                dp5_data.Csigmas,
+                dp5_data.Cmus,
                 dp5_data.CDP5_atom_probs,
                 dp5_data.CDP5_mol_probs,
             ) = self.C_DP5(mols)
@@ -152,8 +154,9 @@ class DP5ProbabilityCalculator:
             new_labs = labels[has_exp]
             new_inds = indices[has_exp]
 
-            # generate scaled errors
-            scaled = scale_nmr(new_calcs, new_exps)
+            # don't scale errors
+            # scaled = scale_nmr(new_calcs, new_exps)
+            scaled = new_calcs
             corrected_errors = scaled - new_exps[np.newaxis, :]
 
             all_labels.append(new_labs)
@@ -193,7 +196,7 @@ class DP5ProbabilityCalculator:
         # now return condensed representations! These are now grouped by conformer
         # need to redo to accommodate
 
-        atom_probs = self.probfunction(rep_df)
+        atom_probs, sigmas, mus = self.probfunction(rep_df)
         # should be abstracted into KDE-based calculator
 
         weighted_probs = self.boltzmann_weight(rep_df, "atom_probs")
@@ -208,6 +211,9 @@ class DP5ProbabilityCalculator:
         calc_shifts_analysed = self.boltzmann_weight(rep_df, "conf_shifts")
         exp_shifts_analysed = rep_df.groupby("mol_id")["exp_shifts"].first()
 
+        sigmas = self.boltzmann_weight(rep_df, "sigma")
+        mus = self.boltzmann_weight(rep_df, "mu")
+
         # eventually return atomic probs, weighted atomic probs, DP5 scores
         logger.info("Atomic probabilities estimated")
         return (
@@ -216,6 +222,8 @@ class DP5ProbabilityCalculator:
             exp_shifts_analysed,
             weighted_errors,
             atom_probs,
+            sigmas,
+            mus,
             weighted_probs,
             total_probs,
         )
@@ -470,7 +478,11 @@ class QuantileDP5ProbabilityCalculator(DP5ProbabilityCalculator):
             atom_probs_all.append(atom_probs)
         df["atom_probs"] = atom_probs_all
         atom_probs = [np.stack(df) for i, df in df.groupby("mol_id")["atom_probs"]]
-        return atom_probs
+        sigmas = [np.stack(df) for i, df in df.groupby("mol_id")["sigma"]]
+        mus = [np.stack(df) for i, df in df.groupby("mol_id")["mu"]]
+        print(f'sigmas: {sigmas}, mus: {mus}')
+        print(f'atom_probs: {atom_probs}')
+        return atom_probs, sigmas, mus
 
     def generate_distributions(self, quantile_col):
         # in principle, should be able to explode then reassemble
@@ -537,16 +549,19 @@ class DP5Data(AnalysisData):
         output_dict["CDP5_output"] = []
         # output_dict["HDP5_output"] = []
         # output_dict["DP5_output"] = []
-        for mol, clab, cshift, cexp, cerr, cpr in zip(
+        for mol, clab, cshift, cexp, cerr, csig, cmu, cpr in zip(
             self.mols,
             self.Clabels,
             self.Cshifts,
             self.Cexp,
             self.Cerrors,
+            self.Csigmas,
+            self.Cmus,
             self.CDP5_atom_probs,
         ):
+            print(f'clab: {clab}, cshift: {cshift}, cexp: {cexp}, cerr: {cerr}, csig: {csig}, cmu: {cmu}, cpr: {cpr}')
             output = f"\nAssigned C NMR shift for {mol}:"
-            output += self.print_assignment(clab, cshift, cexp, cerr, cpr)
+            output += self.print_assignment(clab, cshift, cexp, cerr, csig, cmu, cpr)
             output_dict["C_output"].append(output)
 
         # for mol, hlab, hshift, hscal, hexp, herr in zip(
@@ -570,7 +585,7 @@ class DP5Data(AnalysisData):
         return dp5_output
 
     @staticmethod
-    def print_assignment(labels, calculated, exp, error, probs):
+    def print_assignment(labels, calculated, exp, error, sigma, mu, probs):
         """Prints table for molecule"""
 
         s = np.argsort(calculated)
@@ -578,12 +593,23 @@ class DP5Data(AnalysisData):
         slabels = labels[s]
         sexp = exp[s]
         serror = error[s]
+        ssigma = sigma[s]
+        smu = mu[s]
         sprob = probs[s]
+        sdev = serror / ssigma
 
-        output = f"\nlabel, calc, exp, error, prob"
+        # Define column headers and widths
+        output = "\n{:<8s} {:>8s} {:>8s} {:>8s} {:>8s} {:>8s} {:>8s} {:>8s}".format(
+            "Label", "Calc", "Exp", "Error", "σ", "μ", "Deviation", "Prob"
+        )
+        # Add separator line
+        output += "\n" + "-" * 56
 
-        for lab, calc, ex, er, p in zip(slabels, svalues, sexp, serror, sprob):
-            output += f"\n{lab:6s} {calc:6.2f} {ex:6.2f} {er:6.2f} {p:6.2f}"
+        # Format each row with consistent spacing
+        for lab, calc, ex, er, sig, mu, dev, prob in zip(slabels, svalues, sexp, serror, ssigma, smu, sdev, sprob):
+            output += "\n{:<8s} {:8.2f} {:8.2f} {:8.2f} {:8.2f} {:8.2f} {:8.2f}σ {:8.2f}".format(
+                lab, calc, ex, er, sig, mu, dev, prob
+            )
         return output
 
 
