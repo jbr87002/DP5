@@ -12,6 +12,7 @@ from pathlib import Path
 import argparse
 import os
 import logging
+import shutil
 
 import tomli
 import json
@@ -103,6 +104,8 @@ def main():
     )
 
     parser.add_argument("-l", "--log_filename", help="Path to log file", default="")
+
+    parser.add_argument("--remove", help="Remove old calculation dirs in output folder", action="store_true")
 
     parser.add_argument("--log_level", choices=LOGLEVEL_CHOICES)
 
@@ -245,6 +248,13 @@ def main():
         cfg = config.copy()
         cfg["output_folder"] = str(cfg["output_folder"])
         json.dump(cfg, f, indent=4)
+    
+    if args.remove:
+        for folder in ['dp4', 'dp5']:
+            folder_path = config["output_folder"] / folder
+            if folder_path.exists():
+                logger.info(f"Removing {folder_path}")
+                shutil.rmtree(folder_path)
 
     logger.info("Configuration saved to %s" % str(config["output_folder"]))
 
