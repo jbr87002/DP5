@@ -10,8 +10,7 @@ Install dependencies using `pip install -e .`, then `pip install pytorch==2.2.1
 dgl==2.1.0.cu118 dgllife==0.3.2`, then downgrade `numpy` using `pip install
 numpy==1.26.4`.
 
-Right now, the model isn't loading correctly from the checkpoint. It loads fine
-using the inference script in the SGNN repo, so I'm not sure why it's not
-loading here.
+Right now, DP5 calculation isn't working correctly, something seems to be going
+wrong with the assignment. See e.g. JB10 for an example.
 
 Clone `SGNN` conda env, then install DP5 with `pip install -e .`.
