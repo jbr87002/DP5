@@ -243,7 +243,7 @@ class Molecules:
             mol.assign_nmr(C_exp, H_exp)
 
     def dp5_analysis(self):
-        dp5 = DP5(self.config["output_folder"], self.config["workflow"]["dft_nmr"])
+        dp5 = DP5(self.config["output_folder"], self.config["workflow"]["dft_nmr"], self.config["nn_model"]["model"])
         self.dp5_output = dp5(self.mols)
 
     def dp4_analysis(self):

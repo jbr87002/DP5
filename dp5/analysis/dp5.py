@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class DP5:
     """Performs DP5 analysis"""
 
-    def __init__(self, output_folder: Path, use_dft_shifts: bool):
+    def __init__(self, output_folder: Path, use_dft_shifts: bool, nn_model: str):
         """Initialise the settings.
 
         Arguments:
@@ -45,11 +45,18 @@ class DP5:
                 dp5_incorrect_scaling="Error_incorrect_kde.p",
             )
         else:
+            if nn_model == "cascade":
+                model_file = "NMRdb_CASCADE_99quantiles.zip"
+                nn_model = "cascade"
+            elif nn_model == "sgnn":
+                model_file = 'sgnn_13c.pt'
+                nn_model = "sgnn"
             # must load model for shift preiction
             self.C_DP5 = QuantileDP5ProbabilityCalculator(
                 atom_type="C",
-                model_file="NMRdb_CASCADE_99quantiles.zip",
+                model_file=model_file,
                 batch_size=16,
+                nn_model=nn_model,
             )
 
         if not self.output_folder.exists():
@@ -435,16 +442,20 @@ class ExpDP5ProbabilityCalculator(DP5ProbabilityCalculator):
 
 class QuantileDP5ProbabilityCalculator(DP5ProbabilityCalculator):
     def __init__(
-        self, atom_type, model_file, batch_size, quantile_regressor="quantile99.zip"
+        self, atom_type, model_file, batch_size, nn_model="cascade", quantile_regressor="quantile99.zip"
     ):
         super().__init__(atom_type)
         default_path = str(Path(__file__).parent.parent / "neural_net" / model_file)
-        self.model = CASCADE_Quantile.load(default_path)
+        if nn_model == "cascade":
+            self.model = CASCADE_Quantile.load(default_path)
+        elif nn_model == "sgnn":
+            self.model = SGNN_Quantile.load(default_path)
         self.batch_size = batch_size
 
     def probfunction(self, df):
         # take representations
         df["quantiles"] = extract_representations(self.model, df, self.batch_size)
+        print(f'QUANTILES: {df["quantiles"]}')
         df[["mu", "sigma"]] = self.generate_distributions(df["quantiles"])
         atom_probs_all = []
         for i, (mus, sigmas, exps) in df[["mu", "sigma", "exp_shifts"]].iterrows():
