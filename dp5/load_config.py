@@ -75,6 +75,14 @@ def main():
     )
 
     parser.add_argument(
+        "-m",
+        "--model",
+        help="Model to use for NMR shift prediction. Default is cascade. Options are cascade and sgnn.",
+        choices=["cascade", "sgnn"],
+        default="cascade",
+    )
+
+    parser.add_argument(
         "-w",
         "--workflow",
         help="Defines which steps to include in the workflow, "
@@ -166,6 +174,9 @@ def main():
         raise ValueError("No structures specified")
 
     logger.info(f"Structure input files: {', '.join(config['structure'])}")
+
+    if args.model:
+        config["nn_model"]["model"] = args.model
 
     if args.nmr_file:
         logger.debug(f"Read NMR File {args.nmr_file} from command line")

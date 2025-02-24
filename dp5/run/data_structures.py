@@ -180,14 +180,7 @@ class Molecule:
         # recomputes populations just in case
         data = getattr(self, attr)
         data = np.array(data, dtype=np.float32)
-        
-        # Handle multiple predictions per atom
-        # data shape: (n_conformers, n_atoms, n_predictions)
-        # populations shape: (n_conformers,)
-        # Reshape populations to (n_conformers, 1, 1) for broadcasting
-        weighted_data = (self.populations[:, np.newaxis, np.newaxis] * data).sum(axis=0)
-        
-        return weighted_data
+        return (self.populations[:, np.newaxis] * data).sum(axis=0)
 
     @property
     def H_shifts(self):

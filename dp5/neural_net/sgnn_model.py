@@ -215,10 +215,15 @@ def get_shifts_and_labels_sgnn(mols, atomic_symbol, model_path, batch_size=16):
     all_df, all_labels = mols_to_df(mols, atomic_symbol)
     logger.info(f"Ready to predict shifts for {atomic_symbol}")
     all_shifts = predict_shifts(model, all_df, train_y_mean, train_y_std, batch_size=batch_size)
+    # just take the median predictions
+    median_idx = len(all_shifts[0]) // 2
 
     # Filter shifts based on labels
     filtered_shifts = []
     for mol_shifts, mol_labels in zip(all_shifts, all_labels):
+        # mol_shifts is a list of lists
+        # keep just the middle value from each sub-list
+        mol_shifts = [shift[median_idx] for shift in mol_shifts]
         # Convert labels like 'C2' to indices (subtract 1 to get 0-based index)
         indices = [int(label[1:]) - 1 for label in mol_labels]
         

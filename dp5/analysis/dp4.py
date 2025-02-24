@@ -106,20 +106,15 @@ class DP4:
         for mol in mols:
             mol_dict = dict()
 
-            print(f'H exp: {mol.H_exp}')
             *H_metadata, H_dp4 = self.dp4_proton(mol.H_shifts, mol.H_exp, mol.H_labels)
             H_dict = {k: v for k, v in zip(H_keys, H_metadata)}
             mol_dict.update(H_dict)
             H_data.append(H_dp4)
 
-            print(f'C shifts: {mol.C_shifts}')
-            print(f'C exp: {mol.C_exp}')
-            print(f'C labels: {mol.C_labels}')
-
-            median_idx = len(mol.C_shifts[0]) // 2
-            median_C_shifts = np.array([shift[median_idx] for shift in mol.C_shifts])
-
-            *C_metadata, C_dp4 = self.dp4_carbon(median_C_shifts, mol.C_exp, mol.C_labels)
+            print(f'C SHIFTS: {mol.C_shifts}')
+            print(f'C EXPERIMENTAL: {mol.C_exp}')
+            print(f'C LABELS: {mol.C_labels}')
+            *C_metadata, C_dp4 = self.dp4_carbon(mol.C_shifts, mol.C_exp, mol.C_labels)
             C_dict = {k: v for k, v in zip(C_keys, C_metadata)}
             mol_dict.update(C_dict)
             C_data.append(C_dp4)

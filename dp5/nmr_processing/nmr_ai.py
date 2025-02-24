@@ -183,16 +183,12 @@ def matching_assignment(C_shifts, C_exp, threshold=40):
     Returns:
     - list of assigned experimental shifts (None for unassigned atoms)
     """
-    median_idx = len(C_shifts[0]) // 2
-    # Extract just the median shifts for matching
-    median_shifts = [shifts[median_idx] for shifts in C_shifts]  # shifts[1] is the median value
-    
     # Original matching logic using median shifts
-    C_assigned = [None] * len(median_shifts)
+    C_assigned = [None] * len(C_shifts)
     used_exp = set()
     
     # First pass - assign closest experimental shift within threshold
-    for i, calc_shift in enumerate(median_shifts):
+    for i, calc_shift in enumerate(C_shifts):
         best_diff = threshold
         best_exp = None
         best_exp_idx = None
