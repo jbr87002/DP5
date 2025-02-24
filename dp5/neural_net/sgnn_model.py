@@ -125,7 +125,6 @@ def predict_shifts(model, test_df, train_y_mean, train_y_std, batch_size=16):
     - batch_size: batch size for predictions
     Returns:
     - predictions: numpy array of predictions
-    - time_per_mol: average time per molecule
     """
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
@@ -206,7 +205,7 @@ def get_shifts_and_labels_sgnn(mols, atomic_symbol, model_path, batch_size=16):
     Arguments:
     - list of lists of RDKit mol objects
     Returns:
-    - list of lists of 13C chemical shifts for each atom in a molecule
+    - list of list of lists of 13C chemical shifts for each atom in a molecule
     - list of lists of C atomic labels
     """
     model, train_y_mean, train_y_std = load_NMR_prediction_model(model_path)
@@ -230,7 +229,7 @@ def get_shifts_and_labels_sgnn(mols, atomic_symbol, model_path, batch_size=16):
         # Create boolean mask for the atoms we want to keep
         mol_shifts = np.array(mol_shifts)
         filtered_mol_shifts = mol_shifts[indices]
-        filtered_shifts.append(filtered_mol_shifts)
+        filtered_shifts.append([filtered_mol_shifts])
 
     return filtered_shifts, all_labels
 
