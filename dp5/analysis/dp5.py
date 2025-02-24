@@ -13,6 +13,7 @@ from scipy.optimize import curve_fit
 from sklearn.neighbors import KernelDensity
 
 from dp5.neural_net.CNN_model import *
+from dp5.neural_net.sgnn_model import *
 from dp5.analysis.utils import scale_nmr, AnalysisData
 
 logger = logging.getLogger(__name__)
@@ -47,10 +48,8 @@ class DP5:
         else:
             if nn_model == "cascade":
                 model_file = "NMRdb_CASCADE_99quantiles.zip"
-                nn_model = "cascade"
             elif nn_model == "sgnn":
                 model_file = 'sgnn_13c.pt'
-                nn_model = "sgnn"
             # must load model for shift preiction
             self.C_DP5 = QuantileDP5ProbabilityCalculator(
                 atom_type="C",
@@ -449,12 +448,16 @@ class QuantileDP5ProbabilityCalculator(DP5ProbabilityCalculator):
         if nn_model == "cascade":
             self.model = CASCADE_Quantile.load(default_path)
         elif nn_model == "sgnn":
-            self.model = SGNN_Quantile.load(default_path)
+            self.model = load_NMR_prediction_model(default_path)
+        self.nn_model = nn_model
         self.batch_size = batch_size
 
     def probfunction(self, df):
         # take representations
-        df["quantiles"] = extract_representations(self.model, df, self.batch_size)
+        if self.nn_model == "cascade":
+            df["quantiles"] = extract_representations(self.model, df, self.batch_size)
+        elif self.nn_model == "sgnn":
+            df["quantiles"] = predict_shifts(df["Mol"], self.atom_type, self.model, self.batch_size)
         print(f'QUANTILES: {df["quantiles"]}')
         df[["mu", "sigma"]] = self.generate_distributions(df["quantiles"])
         atom_probs_all = []
