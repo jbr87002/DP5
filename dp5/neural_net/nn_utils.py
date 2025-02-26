@@ -15,7 +15,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-def get_nn_shifts(mols, batch_size=16, model='cascade'):
+def get_nn_shifts(mols, batch_size=16, model='cascade', n_forward_pass=50):
     """
     Predicts shifts from rdkit Mol objects.
     Arguments:
@@ -27,16 +27,16 @@ def get_nn_shifts(mols, batch_size=16, model='cascade'):
     - list of lists of H atomic labels
     """
 
-    C_shifts, C_labels = predict_C_shifts(mols, batch_size, model)
+    C_shifts, C_labels = predict_C_shifts(mols, batch_size, model, n_forward_pass)
 
-    H_shifts, H_labels = predict_H_shifts(mols, batch_size, model)
+    H_shifts, H_labels = predict_H_shifts(mols, batch_size, model, n_forward_pass)
 
     # will add H_shifts and H_labels later!
 
     return C_shifts, C_labels, H_shifts, H_labels
 
 
-def predict_C_shifts(mols, batch_size, model):
+def predict_C_shifts(mols, batch_size, model, n_forward_pass):
     model_paths = {
         "cascade": "NMRdb-CASCADEset_Exp_mean_model_atom_features256.hdf5",
         "sgnn": "sgnn_13c.pt"
@@ -64,10 +64,11 @@ def predict_C_shifts(mols, batch_size, model):
                 atomic_symbol="C",
                 model_path=model_paths[model],
                 batch_size=batch_size,
+                n_forward_pass=n_forward_pass
             )
     else:
         raise ValueError(f"Model {model} not supported")
 
 
-def predict_H_shifts(mols, batch_size, model):
+def predict_H_shifts(mols, batch_size, model, n_forward_pass):
     return [[[]]] * len(mols), [[]] * len(mols)
