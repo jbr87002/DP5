@@ -1,6 +1,6 @@
 # DP5 Tests
 
-This directory contains tests for the DP5 software.
+This directory contains tests for DP5 software.
 
 ## Running Tests
 
@@ -31,7 +31,6 @@ pytest -v tests/test_dp5_examples.py::TestDP5Examples::test_example_runs
 ## Test Structure
 
 - `test_dp5_examples.py`: Tests that DP5 runs correctly on example data
-- `test_sgnn_model.py`: Tests for the SGNN model functionality
 
 ## Adding New Tests
 
