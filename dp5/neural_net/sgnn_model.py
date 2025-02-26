@@ -207,6 +207,7 @@ def get_shifts_and_labels_sgnn(mols, atomic_symbol, model_path, batch_size=16, m
     - list of list of lists of chemical shifts for each atom in a molecule
     - list of lists of atomic labels
     """
+    mols = [[Chem.RemoveHs(mol) for mol in mol_list] for mol_list in mols]
     model, train_y_mean, train_y_std = load_NMR_prediction_model(model_path)
     logger.info("Loaded NMR prediction model")
 
