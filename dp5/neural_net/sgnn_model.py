@@ -149,7 +149,7 @@ def _convert_to_numpy(mol_dict):
         'smi': np.array(mol_dict['smi'])
     }
 
-def predict_shifts_sgnn(model, test_df, train_y_mean, train_y_std, batch_size=16):
+def predict_shifts_sgnn(model, test_df, train_y_mean, train_y_std, batch_size=16, n_forward_pass=50):
     """
     Predicts shifts for molecules in test_df using SGNN model
     Arguments:
@@ -174,7 +174,7 @@ def predict_shifts_sgnn(model, test_df, train_y_mean, train_y_std, batch_size=16
         collate_fn=collate_reaction_graphs
     )
     
-    predictions, _ = inference(model, loader, train_y_mean, train_y_std, n_forward_pass=50, device=device)
+    predictions, _ = inference(model, loader, train_y_mean, train_y_std, n_forward_pass=n_forward_pass, device=device)
 
     if len(predictions) != total_atoms:
         raise ValueError(f'Number of predictions ({len(predictions)}) does not match number of atoms ({total_atoms})')
@@ -194,7 +194,7 @@ def predict_shifts_sgnn(model, test_df, train_y_mean, train_y_std, batch_size=16
     
     return predictions_by_mol
 
-def get_shifts_and_labels_sgnn(mols, atomic_symbol, model_path, batch_size=16, median_only=True):
+def get_shifts_and_labels_sgnn(mols, atomic_symbol, model_path, batch_size=16, median_only=True, n_forward_pass=5):
     """
     Predicts shifts from rdkit Mol objects using SGNN model
     Arguments:
@@ -213,7 +213,7 @@ def get_shifts_and_labels_sgnn(mols, atomic_symbol, model_path, batch_size=16, m
 
     all_df, all_labels = mols_to_df(mols, atomic_symbol)
     logger.info(f"Ready to predict shifts for {atomic_symbol}")
-    all_shifts = predict_shifts_sgnn(model, all_df, train_y_mean, train_y_std, batch_size=batch_size)
+    all_shifts = predict_shifts_sgnn(model, all_df, train_y_mean, train_y_std, batch_size=batch_size, n_forward_pass=n_forward_pass)
     
     median_idx = len(all_shifts[0]) // 2
     
