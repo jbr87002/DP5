@@ -13,7 +13,13 @@ from scipy.optimize import curve_fit
 from sklearn.neighbors import KernelDensity
 
 from dp5.neural_net.CNN_model import *
-from dp5.neural_net.sgnn_model import *
+
+try:
+    from dp5.neural_net.sgnn_model import *
+    SGNN_AVAILABLE = True
+except ImportError:
+    SGNN_AVAILABLE = False
+
 from dp5.analysis.utils import scale_nmr, AnalysisData
 
 logger = logging.getLogger(__name__)
@@ -49,7 +55,12 @@ class DP5:
             if nn_model == "cascade":
                 model_file = "NMRdb_CASCADE_99quantiles.zip"
             elif nn_model == "sgnn":
-                model_file = 'sgnn_13c.pt'
+                if not SGNN_AVAILABLE:
+                    logger.warning("SGNN model dependencies not available. Falling back to cascade model.")
+                    nn_model = "cascade"
+                    model_file = "NMRdb_CASCADE_99quantiles.zip"
+                else:
+                    model_file = 'sgnn_13c.pt'
             # must load model for shift preiction
             self.C_DP5 = QuantileDP5ProbabilityCalculator(
                 atom_type="C",
@@ -456,7 +467,16 @@ class QuantileDP5ProbabilityCalculator(DP5ProbabilityCalculator):
         if nn_model == "cascade":
             self.model = CASCADE_Quantile.load(default_path)
         elif nn_model == "sgnn":
-            self.model, self.train_y_mean, self.train_y_std = load_NMR_prediction_model(default_path)
+            if not SGNN_AVAILABLE:
+                logger.warning("SGNN model dependencies not available. Falling back to cascade model.")
+                nn_model = "cascade"
+                # Adjust the model file path for cascade
+                cascade_path = str(Path(__file__).parent.parent / "neural_net" / "NMRdb_CASCADE_99quantiles.zip")
+                self.model = CASCADE_Quantile.load(cascade_path)
+                self.train_y_mean = None
+                self.train_y_std = None
+            else:
+                self.model, self.train_y_mean, self.train_y_std = load_NMR_prediction_model(default_path)
         self.nn_model = nn_model
         self.batch_size = batch_size
 
@@ -465,8 +485,12 @@ class QuantileDP5ProbabilityCalculator(DP5ProbabilityCalculator):
         if self.nn_model == "cascade":
             df["quantiles"] = extract_representations(self.model, df, self.batch_size)
         elif self.nn_model == "sgnn":
-            df["quantiles"] = predict_shifts_sgnn(self.model, df, self.train_y_mean, self.train_y_std, self.batch_size)
-            df["quantiles"] = filter_shifts(df["quantiles"], labels, median_only=False)
+            if not SGNN_AVAILABLE:
+                # Fall back to cascade for quantiles
+                df["quantiles"] = extract_representations(self.model, df, self.batch_size)
+            else:
+                df["quantiles"] = predict_shifts_sgnn(self.model, df, self.train_y_mean, self.train_y_std, self.batch_size)
+                df["quantiles"] = filter_shifts(df["quantiles"], labels, median_only=False)
         df[["mu", "sigma"]] = self.generate_distributions(df["quantiles"])
         atom_probs_all = []
         for i, (mus, sigmas, exps) in df[["mu", "sigma", "exp_shifts"]].iterrows():

@@ -1,7 +1,15 @@
 import logging
 
 from .CNN_model import get_shifts_and_labels_cascade
-from .sgnn_model import get_shifts_and_labels_sgnn
+
+try:
+    from .sgnn_model import get_shifts_and_labels_sgnn
+    SGNN_AVAILABLE = True
+except ImportError:
+    SGNN_AVAILABLE = False
+    def get_shifts_and_labels_sgnn(*args, **kwargs):
+        raise ImportError("SGNN model dependencies (dgl, torch, etc.) are not installed. "
+                         "Please use the 'cascade' model instead.")
 
 
 logger = logging.getLogger(__name__)
@@ -41,12 +49,22 @@ def predict_C_shifts(mols, batch_size, model):
             batch_size=batch_size,
         )
     elif model == 'sgnn':
-        return get_shifts_and_labels_sgnn(
-            mols,
-            atomic_symbol="C",
-            model_path=model_paths[model],
-            batch_size=batch_size,
-        )
+        if not SGNN_AVAILABLE:
+            logger.warning("SGNN model dependencies not available. Falling back to cascade model.")
+            model = 'cascade'
+            return get_shifts_and_labels_cascade(
+                mols,
+                atomic_symbol="C",
+                model_path=model_paths[model],
+                batch_size=batch_size,
+            )
+        else:
+            return get_shifts_and_labels_sgnn(
+                mols,
+                atomic_symbol="C",
+                model_path=model_paths[model],
+                batch_size=batch_size,
+            )
     else:
         raise ValueError(f"Model {model} not supported")
 
