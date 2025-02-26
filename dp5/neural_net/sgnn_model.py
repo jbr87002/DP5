@@ -42,7 +42,6 @@ def load_NMR_prediction_model(model_path):
     Returns:
     - loaded model, training statistics
     """
-    # Load model metadata
     metadata = load_model_metadata(model_path)
     
     node_dim = metadata['node_dim']
@@ -150,7 +149,7 @@ def _convert_to_numpy(mol_dict):
         'smi': np.array(mol_dict['smi'])
     }
 
-def predict_shifts(model, test_df, train_y_mean, train_y_std, batch_size=16):
+def predict_shifts_sgnn(model, test_df, train_y_mean, train_y_std, batch_size=16):
     """
     Predicts shifts for molecules in test_df using SGNN model
     Arguments:
@@ -162,15 +161,12 @@ def predict_shifts(model, test_df, train_y_mean, train_y_std, batch_size=16):
     Returns:
     - predictions_by_mol: list of numpy arrays containing predictions for each molecule
     """
-    # Move model to appropriate device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
     
-    # Prepare molecule graphs
     mol_dict, total_atoms = _prepare_molecule_graph(test_df)
     mol_dict = _convert_to_numpy(mol_dict)
     
-    # Create dataset and dataloader
     dataset = GraphDataset('13C', 'sparsified', mol_dict=mol_dict)
     loader = DataLoader(
         dataset=dataset, 
@@ -178,14 +174,11 @@ def predict_shifts(model, test_df, train_y_mean, train_y_std, batch_size=16):
         collate_fn=collate_reaction_graphs
     )
     
-    # Get predictions
-    predictions, _ = inference(model, loader, train_y_mean, train_y_std, n_forward_pass=5, device=device)
+    predictions, _ = inference(model, loader, train_y_mean, train_y_std, n_forward_pass=50, device=device)
 
-    # Validate number of predictions
     if len(predictions) != total_atoms:
         raise ValueError(f'Number of predictions ({len(predictions)}) does not match number of atoms ({total_atoms})')
     
-    # Reshape predictions to match input format
     predictions_by_mol = []
     shift_count = 0
 
@@ -193,7 +186,6 @@ def predict_shifts(model, test_df, train_y_mean, train_y_std, batch_size=16):
         mol = Chem.RemoveHs(group['Mol'].iloc[0])
         atom_count = len(mol.GetAtoms())
         
-        # Extract predictions for current molecule
         mol_predictions = predictions[shift_count:shift_count + atom_count]
         predictions_by_mol.append(mol_predictions)
         
@@ -202,37 +194,62 @@ def predict_shifts(model, test_df, train_y_mean, train_y_std, batch_size=16):
     
     return predictions_by_mol
 
-def get_shifts_and_labels_sgnn(mols, atomic_symbol, model_path, batch_size=16):
+def get_shifts_and_labels_sgnn(mols, atomic_symbol, model_path, batch_size=16, median_only=True):
     """
     Predicts shifts from rdkit Mol objects using SGNN model
     Arguments:
-    - list of lists of RDKit mol objects
+    - mols: list of lists of RDKit mol objects
+    - atomic_symbol: atomic symbol to predict shifts for (e.g., '13C')
+    - model_path: path to the model file
+    - batch_size: batch size for predictions
+    - median_only: if True, return only the median prediction for each atom
     Returns:
-    - list of list of lists of 13C chemical shifts for each atom in a molecule
-    - list of lists of C atomic labels
+    - list of list of lists of chemical shifts for each atom in a molecule
+    - list of lists of atomic labels
     """
     model, train_y_mean, train_y_std = load_NMR_prediction_model(model_path)
     logger.info("Loaded NMR prediction model")
 
     all_df, all_labels = mols_to_df(mols, atomic_symbol)
     logger.info(f"Ready to predict shifts for {atomic_symbol}")
-    all_shifts = predict_shifts(model, all_df, train_y_mean, train_y_std, batch_size=batch_size)
-    # just take the median predictions
+    all_shifts = predict_shifts_sgnn(model, all_df, train_y_mean, train_y_std, batch_size=batch_size)
+    
     median_idx = len(all_shifts[0]) // 2
-
-    # Filter shifts based on labels
-    filtered_shifts = []
-    for mol_shifts, mol_labels in zip(all_shifts, all_labels):
-        # mol_shifts is a list of lists
-        # keep just the middle value from each sub-list
-        mol_shifts = [shift[median_idx] for shift in mol_shifts]
-        # Convert labels like 'C2' to indices (subtract 1 to get 0-based index)
-        indices = [int(label[1:]) - 1 for label in mol_labels]
-        
-        # Create boolean mask for the atoms we want to keep
-        mol_shifts = np.array(mol_shifts)
-        filtered_mol_shifts = mol_shifts[indices]
-        filtered_shifts.append([filtered_mol_shifts])
+    
+    filtered_shifts = filter_shifts(all_shifts, all_labels, median_only=median_only, median_idx=median_idx)
 
     return filtered_shifts, all_labels
 
+def filter_shifts(shifts, labels, median_only=False, median_idx=None):
+    """
+    Filter shifts based on labels
+    
+    Arguments:
+    - shifts: list of lists of shift predictions for each molecule
+    - labels: list of lists of atomic labels for each molecule
+    - median_only: if True, keep only the median value from each prediction
+    - median_idx: index of the median value (required if median_only=True)
+    
+    Returns:
+    - filtered_shifts: list of lists of shift predictions filtered by labels
+    """
+    if median_only and median_idx is None:
+        raise ValueError("median_idx must be provided when median_only=True")
+        
+    filtered_shifts = []
+    for mol_shifts, mol_labels in zip(shifts, labels):
+        if median_only:
+            mol_shifts = [shift[median_idx] for shift in mol_shifts]
+            
+        indices = [int(label[1:]) - 1 for label in mol_labels]
+        
+        if median_only:
+            mol_shifts = np.array(mol_shifts)
+            filtered_mol_shifts = mol_shifts[indices]
+            filtered_shifts.append([filtered_mol_shifts])
+        else:
+            # For full predictions, keep all values for each atom
+            filtered_mol_shifts = [mol_shifts[i] for i in indices]
+            filtered_shifts.append(filtered_mol_shifts)
+
+    return filtered_shifts
