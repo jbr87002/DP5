@@ -5,8 +5,8 @@ To get started:
 - navigate to the folder
 - install via `pip install -e .`
 
-## Trying to get an env with all dependencies working
-Try installing dgl and torch first:
+## Instructions for setting up environment with SGNN dependencies installed
+Install `torch`, `dgl` and `dgllife` using `pip` before installing the package.
 ```
 conda create -n dp5_new python==3.11
 conda activate dp5_new
@@ -15,7 +15,8 @@ pip install  dgl -f https://data.dgl.ai/wheels/torch-2.4/cu118/repo.html
 pip install dgllife==0.3.2
 pip install -e .
 ```
-This seems to work fine.
+
+If this is not done, the SGNN model will not be available.
 
 
 
