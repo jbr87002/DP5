@@ -80,8 +80,9 @@ def check_command_exists(command):
     except Exception:
         return False
 
-# Module-level variable to track if SGNN is available
+# Module-level variables to track if SGNN and Cascade are available
 sgnn_available = False
+cascade_available = False
 
 class TestDP4Examples:
     """Test class for running dp4 on example data"""
@@ -134,21 +135,20 @@ class TestDP4Examples:
     def test_example_runs(self, dir_name, model_name):
         """Test that dp4 runs successfully on each example with specified model"""
         # Skip SGNN tests if SGNN is not available
-        if model_name == "sgnn" and not sgnn_available:
+        if model_name == "sgnn" and not sgnn_available and pytest in sys.modules:
             pytest.skip("Skipping SGNN tests because SGNN model is not available")
         
-        if model_name == "cascade" and not cascade_available:
+        if model_name == "cascade" and not cascade_available and pytest in sys.modules:
             pytest.skip("Skipping Cascade tests because Cascade model is not available")
             
         directory = os.path.join(EXAMPLES_DIR, dir_name)
         
         # Find SDF files in the directory
-        sdf_files = find_sdf_files(directory)
-        if not sdf_files:
-            pytest.skip(f"No SDF files found in {directory}")
-        
-        # Use the first SDF file
-        sdf_file = sdf_files[0]
+        sdf_file = f'{dir_name}_.sdf'
+
+        # Check if the SDF file exists
+        if not os.path.exists(os.path.join(directory, sdf_file)):
+            pytest.skip(f"SDF file {sdf_file} not found in {directory}")
         
         command = f'pydp4 -n {dir_name}NMR -i sdf -s {sdf_file} -c {CONFIG_PATH} -w gsw --model {model_name} --remove'
         
