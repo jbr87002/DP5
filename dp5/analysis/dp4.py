@@ -190,7 +190,7 @@ class DP4:
         new_labs = labels[has_exp]
 
         new_scaled = scale_nmr(new_calcs, new_exps)
-        errors = new_scaled - new_exps
+        errors = np.abs(new_scaled - new_exps)
         probs = probability(errors)
         # take the product of probabilities
         dp4_score = prod(probs, start=1)

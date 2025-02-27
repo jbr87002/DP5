@@ -183,7 +183,7 @@ class DP5ProbabilityCalculator:
             # don't scale errors
             # scaled = scale_nmr(new_calcs, new_exps)
             scaled = new_calcs
-            corrected_errors = scaled - new_exps[np.newaxis, :]
+            corrected_errors = np.abs(scaled - new_exps[np.newaxis, :])
 
             all_labels.append(new_labs)
 
@@ -689,7 +689,7 @@ class DP5Data(AnalysisData):
             str: Formatted table of assignments
         """
         # Calculate errors from means and exps
-        error = mu - exp
+        error = np.abs(mu - exp)
         sdev = error / sigma
         
         s = np.argsort(mu)
