@@ -30,7 +30,7 @@ dependencies = [
         "pathos",
         "pandas",
         "statsmodels",
-        "tensorflow", # drop the version requirement as not necessary for SGNN
+        "tensorflow>=2,<=2.14", # drop the version requirement as not necessary for SGNN
         "dill",
         "joblib",
         "networkx"
