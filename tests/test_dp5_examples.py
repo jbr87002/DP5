@@ -3,6 +3,8 @@ import sys
 import pytest
 import subprocess
 import time
+import pickle
+import numpy as np
 from pathlib import Path
 
 # Path to the examples directory
@@ -11,6 +13,33 @@ CONFIG_PATH = os.path.join(EXAMPLES_DIR, "config.toml")
 
 # Models to test
 MODELS = ["cascade", "sgnn"]
+
+ACCEPTABLE_ERRORS = {
+    'S24': 9,
+    'S10': 8,
+    'S5': 8,
+    'S4': 8,
+    'S15': 7,
+    'S14': 7,
+    'S11': 6,
+    'S16': 6,
+    'S7': 6,
+    'S21': 6,
+    'S12': 6,
+    'S23': 6,
+    'S8': 6,
+    'S9': 6,
+    'S22': 6,
+    'S6': 6,
+    'S19': 5,
+    'S13': 5,
+    'S1': 5,
+    'S2': 5,
+    'S3': 5,
+    'S18': 4,
+    'S17': 4,
+    'S20': 4
+}
 
 def run_dp5_command(directory, command):
     """Run a dp5 command in the specified directory and return the result"""
@@ -26,6 +55,15 @@ def run_dp5_command(directory, command):
         return result
     finally:
         os.chdir(original_dir)
+
+def get_mae(directory):
+    """Get the MAE for a directory"""
+    data_dic_path = os.path.join(directory, 'dp5/data_dic.p')
+    data_dic = pickle.load(open(data_dic_path, 'rb'))
+    # the correct structure is the second one in the error list
+    error_list = data_dic['Cerrors'][1]
+    mae = np.nanmean(error_list)
+    return mae
 
 # Module-level variables to track if SGNN and Cascade are available
 sgnn_available = False
@@ -117,6 +155,15 @@ class TestDP5Examples:
         
         # Check for "Program terminated normally" in the combined output
         assert "Program terminated normally" in all_output, f"DP5 did not terminate normally on example S{example_num} with model {model_name}"
+
+        # Check if the data dictionary file exists
+        data_dic_path = os.path.join(directory, 'dp5/data_dic.p')
+        assert os.path.exists(data_dic_path), f"Data dictionary file {data_dic_path} not found in {directory}"
+
+        # Get the MAE
+        mae = get_mae(directory)
+        print(f"MAE for S{example_num} is {mae}")
+        assert mae < ACCEPTABLE_ERRORS[f"S{example_num}"], f"MAE for S{example_num} is too high: {mae}"
         
         # Only check for fallback if using SGNN model
         if model_name == "sgnn":
