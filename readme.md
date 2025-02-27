@@ -14,3 +14,13 @@ Right now, DP5 calculation isn't working correctly, something seems to be going
 wrong with the assignment. See e.g. JB10 for an example.
 
 Clone `SGNN` conda env, then install DP5 with `pip install -e .`.
+
+## Trying to get an env with all dependencies working
+```
+conda create -n dp5 python=3.10
+conda activate dp5
+pip install -e .
+conda install -c conda-forge dgl=2.1.0=cuda118py310h5c70fa1_2
+conda install -c pytorch pytorch=2.2.1 cudatoolkit=11.8
+```
+
