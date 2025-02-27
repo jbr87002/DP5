@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 @pytest.fixture(scope="session")
 def examples_dir():
     """Return the path to the examples directory"""
-    examples_path = "/home/jbr46/structure_reassignment_examples_ML"
+    examples_path = "/scratch/jbr46/structure_reassignment_examples"
     if not os.path.isdir(examples_path):
         pytest.skip(f"Examples directory {examples_path} not found")
     return examples_path
