@@ -4,6 +4,8 @@ import pytest
 import subprocess
 import glob
 import time
+import pickle
+import numpy as np
 from pathlib import Path
 
 # Path to the examples directory
@@ -12,6 +14,54 @@ CONFIG_PATH = os.path.join(EXAMPLES_DIR, "config.toml")
 
 # Directories to skip (known to be problematic)
 SKIP_DIRS = ["BYH2"]
+
+ACCEPTABLE_ERRORS = {
+    'AT3': 1000,
+    'TS4': 1000,
+    'IP1': 12,
+    'KE3': 11,
+    'KE1': 10,
+    'NL1B': 10,
+    'AT1': 10,
+    'KE2': 9,
+    'JB11': 8,
+    'NP3B': 7,
+    'NP1': 7,
+    'TS3A': 7,
+    'NL2B': 7,
+    'TP2': 7,
+    'JB7': 6,
+    'NP2': 6,
+    'JB10': 6,
+    'JB1': 6,
+    'NP5': 6,
+    'NL2A': 6,
+    'JB2': 6,
+    'NP4': 6,
+    'NP3A': 6,
+    'JB12': 6,
+    'AT2': 6,
+    'IP5': 5,
+    'BYH1': 5,
+    'JB13A': 5,
+    'JB9': 5,
+    'JB13B': 5,
+    'JB6': 5,
+    'JB8': 5,
+    'IP2': 5,
+    'JB5': 5,
+    'TP3': 4,
+    'IP3': 4,
+    'TP1': 4,
+    'JB4': 4,
+    'TS3B': 4,
+    'OD1': 4,
+    'TS1': 4,
+    'IP4': 4,
+    'TS2': 4,
+    'JB3': 3,
+    'NL1A': 1000
+}
 
 # Models to test
 MODELS = ["cascade", "sgnn"]
@@ -30,6 +80,15 @@ def run_dp4_command(directory, command):
         return result
     finally:
         os.chdir(original_dir)
+
+def get_mae(directory):
+    """Get the MAE for a directory"""
+    data_dic_path = os.path.join(directory, 'dp4/data_dic.p')
+    data_dic = pickle.load(open(data_dic_path, 'rb'))
+    error_list = data_dic['Cerrors'][0]
+    print(error_list)
+    mae = np.nanmean(error_list)
+    return mae
 
 def find_sdf_files(directory):
     """Find SDF files in a directory"""
@@ -181,6 +240,15 @@ class TestDP4Examples:
         assert result.returncode == 0, f"DP4 failed on example {dir_name} with model {model_name}. Error: {result.stderr}"
         
         assert "Program terminated normally" in all_output, f"DP4 did not terminate normally on example {dir_name} with model {model_name}"
+
+        # Check if the data dictionary file exists
+        data_dic_path = os.path.join(directory, 'dp4/data_dic.p')
+        assert os.path.exists(data_dic_path), f"Data dictionary file {data_dic_path} not found in {directory}"
+
+        # Get the MAE
+        mae = get_mae(directory)
+        print(f"MAE for {dir_name} is {mae}")
+        assert mae < ACCEPTABLE_ERRORS[dir_name], f"MAE for {dir_name} is too high: {mae}"
         
         # Only check for fallback if using SGNN model
         if model_name == "sgnn":
