@@ -20,4 +20,27 @@ def config_path(examples_dir):
     config_path = os.path.join(examples_dir, "config.toml")
     if not os.path.isfile(config_path):
         pytest.skip(f"Config file {config_path} not found")
-    return config_path 
+    return config_path
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--model-filter", 
+        action="store", 
+        default="all", 
+        help="Filter tests by model: 'cascade', 'sgnn', or 'all'"
+    )
+
+def pytest_collection_modifyitems(config, items):
+    model_filter = config.getoption("--model-filter")
+    if model_filter == "all":
+        # Run all tests
+        return
+    
+    skip_model = pytest.mark.skip(reason=f"Test doesn't use the {model_filter} model")
+    
+    for item in items:
+        # Check if this is a parameterized test with model_name
+        if hasattr(item, 'callspec') and hasattr(item.callspec, 'params') and "model_name" in item.callspec.params:
+            # This is a test with a model parameter
+            if item.callspec.params["model_name"] != model_filter:
+                item.add_marker(skip_model) 

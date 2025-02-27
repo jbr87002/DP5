@@ -12,13 +12,28 @@ from scipy.stats import norm
 from scipy.optimize import curve_fit
 from sklearn.neighbors import KernelDensity
 
-from dp5.neural_net.CNN_model import *
+CASCADE_AVAILABLE = False
+try:
+    from dp5.neural_net.CNN_model import *
+    CASCADE_AVAILABLE = True
+except ImportError:
+    # Create a dummy function for filter_shifts
+    def extract_representations(*args, **kwargs):
+        """Dummy function when Cascade is not available"""
+        raise ImportError("Cascade model dependencies are not installed. "
+                         "Please use the 'sgnn' model instead.")
+
+SGNN_AVAILABLE = False
 
 try:
     from dp5.neural_net.sgnn_model import *
     SGNN_AVAILABLE = True
 except ImportError:
-    SGNN_AVAILABLE = False
+    # Create a dummy function for filter_shifts
+    def get_shifts_and_labels_cascade(*args, **kwargs):
+        """Dummy function when Cascade is not available"""
+        raise ImportError("SGNN model dependencies are not installed. "
+                         "Please use the 'cascade' model instead.")
 
 from dp5.analysis.utils import scale_nmr, AnalysisData
 

@@ -5,22 +5,19 @@ To get started:
 - navigate to the folder
 - install via `pip install -e .`
 
-## Notes for `sgnn` branch
-Install dependencies using `pip install -e .`, then `pip install pytorch==2.2.1
-dgl==2.1.0.cu118 dgllife==0.3.2`, then downgrade `numpy` using `pip install
-numpy==1.26.4`.
-
-Right now, DP5 calculation isn't working correctly, something seems to be going
-wrong with the assignment. See e.g. JB10 for an example.
-
-Clone `SGNN` conda env, then install DP5 with `pip install -e .`.
-
 ## Trying to get an env with all dependencies working
+Try installing dgl and torch first:
 ```
-conda create -n dp5 python=3.10
-conda activate dp5
+conda create -n dp5_new python==3.11
+conda activate dp5_new
+pip install torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu118
+pip install  dgl -f https://data.dgl.ai/wheels/torch-2.4/cu118/repo.html
+pip install dgllife==0.3.2
 pip install -e .
-conda install -c conda-forge dgl=2.1.0=cuda118py310h5c70fa1_2
-conda install -c pytorch pytorch=2.2.1 cudatoolkit=11.8
 ```
+This seems to work fine.
+
+
+
+
 

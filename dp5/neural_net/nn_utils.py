@@ -1,12 +1,22 @@
 import logging
 
-from .CNN_model import get_shifts_and_labels_cascade
+CASCADE_AVAILABLE = False
 
+try:
+    from .CNN_model import get_shifts_and_labels_cascade
+    CASCADE_AVAILABLE = True
+except ImportError:
+    def get_shifts_and_labels_cascade(*args, **kwargs):
+        raise ImportError("Cascade model dependencies are not installed. "
+                         "Please use the 'sgnn' model instead.")
+
+SGNN_AVAILABLE = False
+
+# Try to import sgnn_model, but don't fail if it's not available
 try:
     from .sgnn_model import get_shifts_and_labels_sgnn
     SGNN_AVAILABLE = True
 except ImportError:
-    SGNN_AVAILABLE = False
     def get_shifts_and_labels_sgnn(*args, **kwargs):
         raise ImportError("SGNN model dependencies (dgl, torch, etc.) are not installed. "
                          "Please use the 'cascade' model instead.")

@@ -1,0 +1,198 @@
+import os
+import sys
+import pytest
+import subprocess
+import glob
+import time
+from pathlib import Path
+
+# Path to the examples directory
+EXAMPLES_DIR = "/scratch/jbr46/dp4_examples"
+CONFIG_PATH = os.path.join(EXAMPLES_DIR, "config.toml")
+
+# Directories to skip (known to be problematic)
+SKIP_DIRS = ["BYH2"]
+
+# Models to test
+MODELS = ["cascade", "sgnn"]
+
+def run_dp4_command(directory, command):
+    """Run a dp4 command in the specified directory and return the result"""
+    original_dir = os.getcwd()
+    try:
+        os.chdir(directory)
+        result = subprocess.run(
+            command, 
+            shell=True, 
+            capture_output=True, 
+            text=True
+        )
+        return result
+    finally:
+        os.chdir(original_dir)
+
+def find_sdf_files(directory):
+    """Find SDF files in a directory"""
+    sdf_files = glob.glob(os.path.join(directory, "*.sdf"))
+    return [os.path.basename(f) for f in sdf_files]
+
+def check_directory_structure():
+    """Check the directory structure and print information about it"""
+    if not os.path.isdir(EXAMPLES_DIR):
+        print(f"Examples directory {EXAMPLES_DIR} not found")
+        return False
+        
+    if not os.path.isfile(CONFIG_PATH):
+        print(f"Config file {CONFIG_PATH} not found")
+        return False
+    
+    example_dirs = [d for d in os.listdir(EXAMPLES_DIR) 
+                   if os.path.isdir(os.path.join(EXAMPLES_DIR, d)) 
+                   and not d.startswith('.')
+                   and d not in SKIP_DIRS]
+    
+    if not example_dirs:
+        print("No example directories found")
+        return False
+    
+    print(f"Found {len(example_dirs)} example directories:")
+    for dir_name in example_dirs:
+        dir_path = os.path.join(EXAMPLES_DIR, dir_name)
+        sdf_files = find_sdf_files(dir_path)
+        
+        if sdf_files:
+            print(f"  {dir_name}: {', '.join(sdf_files)}")
+        else:
+            print(f"  {dir_name}: No SDF files found")
+    
+    return True
+
+def check_command_exists(command):
+    """Check if a command exists in the PATH"""
+    try:
+        result = subprocess.run(
+            f"which {command}", 
+            shell=True, 
+            capture_output=True, 
+            text=True
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+# Module-level variable to track if SGNN is available
+sgnn_available = False
+
+class TestDP4Examples:
+    """Test class for running dp4 on example data"""
+    
+    def setup_method(self):
+        """Setup method that runs before each test"""
+        if not os.path.isdir(EXAMPLES_DIR):
+            pytest.skip(f"Examples directory {EXAMPLES_DIR} not found")
+            
+        if not os.path.isfile(CONFIG_PATH):
+            pytest.skip(f"Config file {CONFIG_PATH} not found")
+            
+        # Check if pydp4 command exists
+        if not check_command_exists("pydp4"):
+            pytest.skip("pydp4 command not found in PATH. Make sure it's installed and in your PATH.")
+    
+    def test_sgnn_available(self):
+        """Test that SGNN model is available"""
+        try:
+            from dp5.neural_net.nn_utils import SGNN_AVAILABLE
+                
+            assert SGNN_AVAILABLE, "SGNN model is not available. Make sure all dependencies are installed."
+            
+            # If we get here, SGNN is available and working
+            global sgnn_available
+            sgnn_available = True
+        except Exception as e:
+            # fail the test if SGNN is not available
+            pytest.fail(f"SGNN test failed: {str(e)}")
+    
+    def test_cascade_available(self):
+        """Test that Cascade model is available"""
+        try:
+            from dp5.neural_net.nn_utils import CASCADE_AVAILABLE
+            
+            assert CASCADE_AVAILABLE, "Cascade model is not available. Make sure all dependencies are installed."
+
+            global cascade_available
+            cascade_available = True
+        except Exception as e:
+            # fail the test if Cascade is not available
+            pytest.fail(f"Cascade test failed: {str(e)}")
+    
+    @pytest.mark.parametrize("dir_name", 
+                             [d for d in os.listdir(EXAMPLES_DIR) 
+                              if os.path.isdir(os.path.join(EXAMPLES_DIR, d)) 
+                              and not d.startswith('.')
+                              and d not in SKIP_DIRS])
+    @pytest.mark.parametrize("model_name", MODELS)
+    def test_example_runs(self, dir_name, model_name):
+        """Test that dp4 runs successfully on each example with specified model"""
+        # Skip SGNN tests if SGNN is not available
+        if model_name == "sgnn" and not sgnn_available:
+            pytest.skip("Skipping SGNN tests because SGNN model is not available")
+        
+        if model_name == "cascade" and not cascade_available:
+            pytest.skip("Skipping Cascade tests because Cascade model is not available")
+            
+        directory = os.path.join(EXAMPLES_DIR, dir_name)
+        
+        # Find SDF files in the directory
+        sdf_files = find_sdf_files(directory)
+        if not sdf_files:
+            pytest.skip(f"No SDF files found in {directory}")
+        
+        # Use the first SDF file
+        sdf_file = sdf_files[0]
+        
+        command = f'pydp4 -n {dir_name}NMR -i sdf -s {sdf_file} -c {CONFIG_PATH} -w gsw --model {model_name} --remove'
+        
+        print(f"\n{'='*80}")
+        print(f"RUNNING: {dir_name} with model {model_name}")
+        print(f"COMMAND: {command}")
+        print(f"{'='*80}")
+        
+        start_time = time.time()
+        
+        result = run_dp4_command(directory, command)
+        
+        # Combine stdout and stderr for checking and display
+        all_output = result.stdout + result.stderr
+        
+        # Print a summary of the output (first few lines and last few lines)
+        output_lines = all_output.splitlines()
+        if len(output_lines) > 20:
+            print("Output (truncated):")
+            print('\n'.join(output_lines[:10]))
+            print("...")
+            print('\n'.join(output_lines[-10:]))
+        else:
+            print("Output:")
+            print(all_output)
+        
+        elapsed_time = time.time() - start_time
+        print(f"Time elapsed: {elapsed_time:.2f} seconds")
+        
+        assert result.returncode == 0, f"DP4 failed on example {dir_name} with model {model_name}. Error: {result.stderr}"
+        
+        assert "Program terminated normally" in all_output, f"DP4 did not terminate normally on example {dir_name} with model {model_name}"
+        
+        # Only check for fallback if using SGNN model
+        if model_name == "sgnn":
+            assert "Falling back to cascade model" not in all_output, f"SGNN model is not being used for example {dir_name}, falling back to cascade model"
+        
+if __name__ == "__main__":
+    # Print information about the directory structure
+    if check_directory_structure():
+        # Check if pydp4 command exists
+        if not check_command_exists("pydp4"):
+            print("WARNING: pydp4 command not found in PATH. Make sure it's installed and in your PATH.")
+            sys.exit(1)
+        
+        # Run the tests
+        pytest.main(["-v", __file__]) 
