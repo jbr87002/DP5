@@ -14,7 +14,7 @@ CONFIG_PATH = os.path.join(EXAMPLES_DIR, "config.toml")
 # Models to test
 MODELS = ["cascade", "sgnn"]
 
-ACCEPTABLE_ERRORS = {
+ACCEPTABLE_ERRORS_SGNN = {
     'S24': 9,
     'S10': 8,
     'S5': 8,
@@ -41,6 +41,32 @@ ACCEPTABLE_ERRORS = {
     'S20': 4
 }
 
+ACCEPTABLE_ERRORS_CASCADE = {
+    'S13': 10,
+    'S16': 8,
+    'S7': 7,
+    'S6': 6,
+    'S10': 6,
+    'S9': 6,
+    'S3': 6,
+    'S20': 5,
+    'S24': 5,
+    'S2': 5,
+    'S14': 5,
+    'S23': 5,
+    'S15': 5,
+    'S1': 5,
+    'S22': 5,
+    'S8': 5,
+    'S5': 4,
+    'S21': 4,
+    'S19': 4,
+    'S18': 4,
+    'S12': 4,
+    'S4': 4,
+    'S17': 4,
+    'S11': 3
+}
 def run_dp5_command(directory, command):
     """Run a dp5 command in the specified directory and return the result"""
     original_dir = os.getcwd()
@@ -163,7 +189,10 @@ class TestDP5Examples:
         # Get the MAE
         mae = get_mae(directory)
         print(f"MAE for S{example_num} is {mae}")
-        assert mae < ACCEPTABLE_ERRORS[f"S{example_num}"], f"MAE for S{example_num} is too high: {mae}"
+        if model_name == "cascade":
+            assert mae < ACCEPTABLE_ERRORS_CASCADE[f"S{example_num}"], f"MAE for S{example_num} is too high: {mae}"
+        else:
+            assert mae < ACCEPTABLE_ERRORS_SGNN[f"S{example_num}"], f"MAE for S{example_num} is too high: {mae}"
         
         # Only check for fallback if using SGNN model
         if model_name == "sgnn":

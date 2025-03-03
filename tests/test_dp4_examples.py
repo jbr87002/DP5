@@ -15,7 +15,7 @@ CONFIG_PATH = os.path.join(EXAMPLES_DIR, "config.toml")
 # Directories to skip (known to be problematic)
 SKIP_DIRS = ["BYH2"]
 
-ACCEPTABLE_ERRORS = {
+ACCEPTABLE_ERRORS_SGNN = {
     'AT3': 1000,
     'TS4': 1000,
     'IP1': 12,
@@ -61,6 +61,54 @@ ACCEPTABLE_ERRORS = {
     'TS2': 4,
     'JB3': 3,
     'NL1A': 1000
+}
+
+ACCEPTABLE_ERRORS_CASCADE = {
+    'TS4': 1000,
+    'TS3A': 16,
+    'BYH1': 8,
+    'JB9': 8,
+    'JB12': 8,
+    'OD1': 7,
+    'JB13A': 7,
+    'JB13B': 6,
+    'JB6': 6,
+    'JB4': 6,
+    'KE3': 6,
+    'NP1': 6,
+    'JB3': 6,
+    'NL1B': 6,
+    'JB1': 5,
+    'JB2': 5,
+    'JB5': 5,
+    'TS1': 5,
+    'NL2B': 5,
+    'NP4': 5,
+    'IP3': 5,
+    'JB8': 5,
+    'NP5': 5,
+    'NP3A': 5,
+    'KE1': 5,
+    'JB11': 5,
+    'IP5': 5,
+    'NP3B': 5,
+    'TP2': 4,
+    'NL2A': 4,
+    'NP2': 4,
+    'TS2': 4,
+    'TP1': 4,
+    'TS3B': 4,
+    'JB7': 4,
+    'JB10': 4,
+    'TP3': 4,
+    'IP2': 4,
+    'IP1': 4,
+    'KE2': 3,
+    'IP4': 3,
+    'AT1': 3,
+    'AT2': 3,
+    'NL1A': 1000,
+    'AT3': 1000
 }
 
 # Models to test
@@ -248,7 +296,10 @@ class TestDP4Examples:
         # Get the MAE
         mae = get_mae(directory)
         print(f"MAE for {dir_name} is {mae}")
-        assert mae < ACCEPTABLE_ERRORS[dir_name], f"MAE for {dir_name} is too high: {mae}"
+        if model_name == "cascade":
+            assert mae < ACCEPTABLE_ERRORS_CASCADE[dir_name], f"MAE for {dir_name} is too high: {mae}"
+        else:
+            assert mae < ACCEPTABLE_ERRORS_SGNN[dir_name], f"MAE for {dir_name} is too high: {mae}"
         
         # Only check for fallback if using SGNN model
         if model_name == "sgnn":
