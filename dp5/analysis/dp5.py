@@ -68,14 +68,14 @@ class DP5:
             )
         else:
             if nn_model == "cascade":
-                model_file = "NMRdb_CASCADE_99quantiles.zip"
+                model_file = "cascade_models/NMRdb_CASCADE_99quantiles.zip"
             elif nn_model == "sgnn":
                 if not SGNN_AVAILABLE:
                     logger.warning("SGNN model dependencies not available. Falling back to cascade model.")
                     nn_model = "cascade"
-                    model_file = "NMRdb_CASCADE_99quantiles.zip"
+                    model_file = "cascade_models/NMRdb_CASCADE_99quantiles.zip"
                 else:
-                    model_file = 'sgnn_13c.pt'
+                    model_file = 'sgnn_models/sgnn_13c.pt'
             # must load model for shift preiction
             self.C_DP5 = QuantileDP5ProbabilityCalculator(
                 atom_type="C",
@@ -478,7 +478,7 @@ class QuantileDP5ProbabilityCalculator(DP5ProbabilityCalculator):
         self, atom_type, model_file, batch_size, nn_model="cascade", quantile_regressor="quantile99.zip"
     ):
         super().__init__(atom_type)
-        default_path = str(Path(__file__).parent.parent / "neural_net" / model_file)
+        default_path = str(Path(__file__).parent.parent / "neural_net" / f"{nn_model}_models" / model_file)
         if nn_model == "cascade":
             self.model = CASCADE_Quantile.load(default_path)
         elif nn_model == "sgnn":

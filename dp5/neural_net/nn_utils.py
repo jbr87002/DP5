@@ -3,7 +3,7 @@ import logging
 CASCADE_AVAILABLE = False
 
 try:
-    from .CNN_model import get_shifts_and_labels_cascade
+    from .cascade_model import get_shifts_and_labels_cascade
     CASCADE_AVAILABLE = True
 except ImportError:
     def get_shifts_and_labels_cascade(*args, **kwargs):
@@ -48,8 +48,8 @@ def get_nn_shifts(mols, batch_size=16, model='cascade', n_forward_pass=50):
 
 def predict_C_shifts(mols, batch_size, model, n_forward_pass):
     model_paths = {
-        "cascade": "NMRdb-CASCADEset_Exp_mean_model_atom_features256.hdf5",
-        "sgnn": "sgnn_13c_npmrd_without_stereochemistry.pt"
+        "cascade": "cascade_models/NMRdb-CASCADEset_Exp_mean_model_atom_features256.hdf5",
+        "sgnn": "sgnn_models/sgnn_13c_npmrd_without_stereochemistry.pt"
     }
     if model == 'cascade':
         return get_shifts_and_labels_cascade(

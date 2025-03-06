@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from pathlib import Path
 from rdkit import Chem
-from .CNN_model import mols_to_df
+from .cascade_model import mols_to_df
 from .sgnn.mpnn_proposed import nmr_mpnn_PROPOSED
 from dgl.data.utils import split_dataset
 from dgllife.utils import RandomSplitter

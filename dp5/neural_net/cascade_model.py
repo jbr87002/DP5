@@ -127,7 +127,7 @@ def build_model(model_file):
     # Construct input sequences
 
     preprocessor = pickle.load(
-        open(Path(__file__).parent / "mean_model_preprocessor.p", "rb")
+        open(Path(__file__).parent / "cascade_models/mean_model_preprocessor.p", "rb")
     )
 
     # Raw (integer) graph inputs
@@ -369,7 +369,7 @@ def predict_shifts(model, test, batch_size=16):
     - list(molecules) of lists(geometries) of lists(shifts)
     """
     preprocessor = pickle.load(
-        open(Path(__file__).parent / "mean_model_preprocessor.p", "rb")
+        open(Path(__file__).parent / "cascade_models/mean_model_preprocessor.p", "rb")
     )
 
     inputs_test = preprocessor.predict(Mol_iter2(test))
