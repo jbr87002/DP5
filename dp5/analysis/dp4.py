@@ -35,11 +35,13 @@ class DP4:
         save_dir.mkdir(exist_ok=True)
         self.save_dir = save_dir
 
-        # define default statictical parameters
+        # define default statistical parameters
         meanC = 0.0
         meanH = 0.0
         stdevC = 2.269372270818724
         stdevH = 0.18731058105269952
+        self.Csigma = stdevC
+        self.Hsigma = stdevH
 
         stats_model = dp4_config["stats_model"]
         param_file = dp4_config["param_file"]
@@ -52,6 +54,7 @@ class DP4:
             else:
                 logger.info("Reading DP4 parameters from %s" % str(param_file))
                 meanC, stdevC, meanH, stdevH = self.read_parameters(param_file)
+                self.Csigma = stdevC
         else:
             logger.error("Statistical model not recognised: %s" % stats_model)
             logger.info("Using default statistical model")
@@ -91,6 +94,8 @@ class DP4:
             logger.warn("DP4 score requires multiple candidate structures.")
         logger.info("Starting DP4 analysis")
         dp4_dicts = DP4Data(mols, self.save_dir / "data_dic.p")
+        dp4_dicts.Csigma = self.Csigma
+        dp4_dicts.Hsigma = self.Hsigma
         C_data = []
         H_data = []
         keys = [
@@ -185,7 +190,7 @@ class DP4:
         new_labs = labels[has_exp]
 
         new_scaled = scale_nmr(new_calcs, new_exps)
-        errors = new_scaled - new_exps
+        errors = np.abs(new_scaled - new_exps)
         probs = probability(errors)
         # take the product of probabilities
         dp4_score = prod(probs, start=1)
@@ -254,18 +259,18 @@ class DP4Data(AnalysisData):
         output_dict["HDP4_output"] = []
         output_dict["DP4_output"] = []
 
-        for mol, clab, cshift, cscal, cexp, cerr in zip(
-            self.mols, self.Clabels, self.Cshifts, self.Cscaled, self.Cexp, self.Cerrors
+        for mol, clab, cshift, cscal, cexp, cerr, cprob in zip(
+            self.mols, self.Clabels, self.Cshifts, self.Cscaled, self.Cexp, self.Cerrors, self.Cprobs
         ):
             output = f"\nAssigned C NMR shift for {mol}:"
-            output += self.print_assignment(clab, cshift, cscal, cexp, cerr)
+            output += self.print_assignment(clab, cshift, cscal, cexp, cerr, self.Csigma, cprob)
             output_dict["C_output"].append(output)
 
-        for mol, hlab, hshift, hscal, hexp, herr in zip(
-            self.mols, self.Hlabels, self.Hshifts, self.Hscaled, self.Hexp, self.Herrors
+        for mol, hlab, hshift, hscal, hexp, herr, hprob in zip(
+            self.mols, self.Hlabels, self.Hshifts, self.Hscaled, self.Hexp, self.Herrors, self.Hprobs
         ):
             output = f"\nAssigned H NMR shift for {mol}:"
-            output += self.print_assignment(hlab, hshift, hscal, hexp, herr)
+            output += self.print_assignment(hlab, hshift, hscal, hexp, herr, self.Hsigma, hprob)
             output_dict["H_output"].append(output)
         for mol, hdp4, cdp4, dp4 in zip(
             self.mols, self.HDP4probs, self.CDP4probs, self.DP4probs
@@ -293,7 +298,7 @@ class DP4Data(AnalysisData):
         return dp4_output
 
     @staticmethod
-    def print_assignment(labels, calculated, scaled, exp, error):
+    def print_assignment(labels, calculated, scaled, exp, error, sigma, prob):
         """Prints table for molecule"""
 
         s = np.argsort(calculated)
@@ -302,9 +307,19 @@ class DP4Data(AnalysisData):
         sscaled = scaled[s]
         sexp = exp[s]
         serror = error[s]
+        sdev = serror / sigma
+        sprob = prob[s]
 
-        output = f"\nlabel, calc, corrected, exp, error"
+        # Define column headers and widths
+        output = "\n{:<8s} {:>8s} {:>10s} {:>8s} {:>8s} {:>8s} {:>8s} {:>8s}".format(
+            "Label", "Calc", "Corrected", "Exp", "Error", "σ", "Deviation", "Prob"
+        )
+        # Add separator line
+        output += "\n" + "-" * 44
 
-        for lab, calc, scal, ex, er in zip(slabels, svalues, sscaled, sexp, serror):
-            output += f"\n{lab:6s} {calc:6.2f} {scal:6.2f} {ex:6.2f} {er:6.2f}"
+        # Format each row with consistent spacing
+        for lab, calc, scal, ex, er, dev, prob in zip(slabels, svalues, sscaled, sexp, serror, sdev, sprob):
+            output += "\n{:<8s} {:8.2f} {:10.2f} {:8.2f} {:8.2f} {:8.2f} {:8.2f}σ {:8.2f}".format(
+                lab, calc, scal, ex, er, sigma, dev, prob
+            )
         return output

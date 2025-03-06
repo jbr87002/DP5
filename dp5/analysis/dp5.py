@@ -12,7 +12,29 @@ from scipy.stats import norm
 from scipy.optimize import curve_fit
 from sklearn.neighbors import KernelDensity
 
-from dp5.neural_net.CNN_model import *
+CASCADE_AVAILABLE = False
+try:
+    from dp5.neural_net.CNN_model import *
+    CASCADE_AVAILABLE = True
+except ImportError:
+    # Create a dummy function for filter_shifts
+    def extract_representations(*args, **kwargs):
+        """Dummy function when Cascade is not available"""
+        raise ImportError("Cascade model dependencies are not installed. "
+                         "Please use the 'sgnn' model instead.")
+
+SGNN_AVAILABLE = False
+
+try:
+    from dp5.neural_net.sgnn_model import *
+    SGNN_AVAILABLE = True
+except ImportError:
+    # Create a dummy function for filter_shifts
+    def get_shifts_and_labels_cascade(*args, **kwargs):
+        """Dummy function when Cascade is not available"""
+        raise ImportError("SGNN model dependencies are not installed. "
+                         "Please use the 'cascade' model instead.")
+
 from dp5.analysis.utils import scale_nmr, AnalysisData
 
 logger = logging.getLogger(__name__)
@@ -21,7 +43,7 @@ logger = logging.getLogger(__name__)
 class DP5:
     """Performs DP5 analysis"""
 
-    def __init__(self, output_folder: Path, use_dft_shifts: bool):
+    def __init__(self, output_folder: Path, use_dft_shifts: bool, nn_model: str):
         """Initialise the settings.
 
         Arguments:
@@ -45,11 +67,21 @@ class DP5:
                 dp5_incorrect_scaling="Error_incorrect_kde.p",
             )
         else:
+            if nn_model == "cascade":
+                model_file = "NMRdb_CASCADE_99quantiles.zip"
+            elif nn_model == "sgnn":
+                if not SGNN_AVAILABLE:
+                    logger.warning("SGNN model dependencies not available. Falling back to cascade model.")
+                    nn_model = "cascade"
+                    model_file = "NMRdb_CASCADE_99quantiles.zip"
+                else:
+                    model_file = 'sgnn_13c.pt'
             # must load model for shift preiction
             self.C_DP5 = QuantileDP5ProbabilityCalculator(
                 atom_type="C",
-                model_file="NMRdb_CASCADE_99quantiles.zip",
+                model_file=model_file,
                 batch_size=16,
+                nn_model=nn_model,
             )
 
         if not self.output_folder.exists():
@@ -77,6 +109,8 @@ class DP5:
                 dp5_data.Cexp,
                 dp5_data.Cerrors,
                 dp5_data.Cconf_atom_probs,
+                dp5_data.Csigmas,
+                dp5_data.Cmus,
                 dp5_data.CDP5_atom_probs,
                 dp5_data.CDP5_mol_probs,
             ) = self.C_DP5(mols)
@@ -146,9 +180,10 @@ class DP5ProbabilityCalculator:
             new_labs = labels[has_exp]
             new_inds = indices[has_exp]
 
-            # generate scaled errors
-            scaled = scale_nmr(new_calcs, new_exps)
-            corrected_errors = scaled - new_exps[np.newaxis, :]
+            # don't scale errors
+            # scaled = scale_nmr(new_calcs, new_exps)
+            scaled = new_calcs
+            corrected_errors = np.abs(scaled - new_exps[np.newaxis, :])
 
             all_labels.append(new_labs)
 
@@ -187,7 +222,7 @@ class DP5ProbabilityCalculator:
         # now return condensed representations! These are now grouped by conformer
         # need to redo to accommodate
 
-        atom_probs = self.probfunction(rep_df)
+        atom_probs, sigmas, mus = self.probfunction(rep_df, labels=all_labels)
         # should be abstracted into KDE-based calculator
 
         weighted_probs = self.boltzmann_weight(rep_df, "atom_probs")
@@ -202,6 +237,9 @@ class DP5ProbabilityCalculator:
         calc_shifts_analysed = self.boltzmann_weight(rep_df, "conf_shifts")
         exp_shifts_analysed = rep_df.groupby("mol_id")["exp_shifts"].first()
 
+        sigmas = self.boltzmann_weight(rep_df, "sigma")
+        mus = self.boltzmann_weight(rep_df, "mu")
+
         # eventually return atomic probs, weighted atomic probs, DP5 scores
         logger.info("Atomic probabilities estimated")
         return (
@@ -210,6 +248,8 @@ class DP5ProbabilityCalculator:
             exp_shifts_analysed,
             weighted_errors,
             atom_probs,
+            sigmas,
+            mus,
             weighted_probs,
             total_probs,
         )
@@ -257,7 +297,7 @@ class ErrorDP5ProbabilityCalculator(DP5ProbabilityCalculator):
         if dp5_incorrect_scaling is not None:
             self.dp5_incorrect_kde = KernelDensityEstimator(dp5_incorrect_scaling)
 
-    def probfunction(self, rep_df):
+    def probfunction(self, rep_df, labels=None):
         logger.debug("Transforming representations")
         rep_df["representations"] = extract_representations(
             self.model, rep_df, self.batch_size
@@ -361,7 +401,7 @@ class ExpDP5ProbabilityCalculator(DP5ProbabilityCalculator):
         if dp5_incorrect_scaling is not None:
             self.dp5_incorrect_kde = KernelDensityEstimator(dp5_incorrect_scaling)
 
-    def probfunction(self, rep_df):
+    def probfunction(self, rep_df, labels=None):
         logger.debug("Transforming representations")
         rep_df["representations"] = extract_representations(
             self.model, rep_df, self.batch_size
@@ -373,7 +413,7 @@ class ExpDP5ProbabilityCalculator(DP5ProbabilityCalculator):
         logger.info("Estimating atomic probabilities")
         rep_df["atom_probs"] = self.kde_probfunction(rep_df)
         atom_probs = [np.stack(df) for i, df in rep_df.groupby("mol_id")["atom_probs"]]
-        return atom_probs
+        return atom_probs, None, None
 
     def kde_probfunction(self, df):
         """Since the result is compared to the experimental shifts, weights the representations and runs KDE on those."""
@@ -435,16 +475,37 @@ class ExpDP5ProbabilityCalculator(DP5ProbabilityCalculator):
 
 class QuantileDP5ProbabilityCalculator(DP5ProbabilityCalculator):
     def __init__(
-        self, atom_type, model_file, batch_size, quantile_regressor="quantile99.zip"
+        self, atom_type, model_file, batch_size, nn_model="cascade", quantile_regressor="quantile99.zip"
     ):
         super().__init__(atom_type)
         default_path = str(Path(__file__).parent.parent / "neural_net" / model_file)
-        self.model = CASCADE_Quantile.load(default_path)
+        if nn_model == "cascade":
+            self.model = CASCADE_Quantile.load(default_path)
+        elif nn_model == "sgnn":
+            if not SGNN_AVAILABLE:
+                logger.warning("SGNN model dependencies not available. Falling back to cascade model.")
+                nn_model = "cascade"
+                # Adjust the model file path for cascade
+                cascade_path = str(Path(__file__).parent.parent / "neural_net" / "NMRdb_CASCADE_99quantiles.zip")
+                self.model = CASCADE_Quantile.load(cascade_path)
+                self.train_y_mean = None
+                self.train_y_std = None
+            else:
+                self.model, self.train_y_mean, self.train_y_std = load_NMR_prediction_model(default_path)
+        self.nn_model = nn_model
         self.batch_size = batch_size
 
-    def probfunction(self, df):
+    def probfunction(self, df, labels=None):
         # take representations
-        df["quantiles"] = extract_representations(self.model, df, self.batch_size)
+        if self.nn_model == "cascade":
+            df["quantiles"] = extract_representations(self.model, df, self.batch_size)
+        elif self.nn_model == "sgnn":
+            if not SGNN_AVAILABLE:
+                # Fall back to cascade for quantiles
+                df["quantiles"] = extract_representations(self.model, df, self.batch_size)
+            else:
+                df["quantiles"] = predict_shifts_sgnn(self.model, df, self.train_y_mean, self.train_y_std, self.batch_size)
+                df["quantiles"] = filter_shifts(df["quantiles"], labels, median_only=False)
         df[["mu", "sigma"]] = self.generate_distributions(df["quantiles"])
         atom_probs_all = []
         for i, (mus, sigmas, exps) in df[["mu", "sigma", "exp_shifts"]].iterrows():
@@ -457,7 +518,9 @@ class QuantileDP5ProbabilityCalculator(DP5ProbabilityCalculator):
             atom_probs_all.append(atom_probs)
         df["atom_probs"] = atom_probs_all
         atom_probs = [np.stack(df) for i, df in df.groupby("mol_id")["atom_probs"]]
-        return atom_probs
+        sigmas = [np.stack(df) for i, df in df.groupby("mol_id")["sigma"]]
+        mus = [np.stack(df) for i, df in df.groupby("mol_id")["mu"]]
+        return atom_probs, sigmas, mus
 
     def generate_distributions(self, quantile_col):
         # in principle, should be able to explode then reassemble
@@ -517,23 +580,29 @@ class DP5Data(AnalysisData):
 
     @property
     def output(self):
-        """Uncomment when H-DP5 is implemented"""
+        """Generate formatted output for DP5 analysis results.
+        
+        Returns:
+            str: Formatted string containing NMR shift assignments and DP5 probabilities
+        """
         output_dict = dict()
         output_dict["C_output"] = []
         # output_dict["H_output"] = []
         output_dict["CDP5_output"] = []
         # output_dict["HDP5_output"] = []
         # output_dict["DP5_output"] = []
-        for mol, clab, cshift, cexp, cerr, cpr in zip(
+        for mol, clab, cshift, cexp, cerr, csig, cmu, cpr in zip(
             self.mols,
             self.Clabels,
             self.Cshifts,
             self.Cexp,
             self.Cerrors,
+            self.Csigmas,
+            self.Cmus,
             self.CDP5_atom_probs,
         ):
             output = f"\nAssigned C NMR shift for {mol}:"
-            output += self.print_assignment(clab, cshift, cexp, cerr, cpr)
+            output += self.print_assignment(clab, cshift, cexp, cerr, cpr, csig, cmu)
             output_dict["C_output"].append(output)
 
         # for mol, hlab, hshift, hscal, hexp, herr in zip(
@@ -556,23 +625,123 @@ class DP5Data(AnalysisData):
         dp5_output += "\n".join([mol["CDP5_output"] for mol in t_dic])
         return dp5_output
 
+    def print_assignment(self, labels, calculated, exp, error, probs, sigma=None, mu=None):
+        """Print assignment table based on available data.
+        
+        Dispatches to the appropriate specialized print method based on whether
+        sigma and mu values are available.
+        
+        Args:
+            labels: Atom labels
+            calculated: Calculated chemical shifts
+            exp: Experimental chemical shifts
+            error: Error values
+            probs: Probability values
+            sigma: Standard deviation values (optional)
+            mu: Mean values (optional)
+            
+        Returns:
+            str: Formatted table of assignments
+        """
+        if sigma is not None and mu is not None:
+            return self._print_assignment_nn(labels, exp, probs, sigma, mu)
+        else:
+            return self._print_assignment_dft(labels, calculated, exp, error, probs)
+    
     @staticmethod
-    def print_assignment(labels, calculated, exp, error, probs):
-        """Prints table for molecule"""
-
-        s = np.argsort(calculated)
-        svalues = calculated[s]
+    def _format_table_header(columns, widths=None):
+        """Create a formatted table header with consistent column widths.
+        
+        Args:
+            columns: List of column header names
+            widths: List of column widths (defaults to 8 if not specified)
+            
+        Returns:
+            str: Formatted header string with separator line
+        """
+        if widths is None:
+            widths = [8] * len(columns)
+            
+        format_str = "\n"
+        for i, (col, width) in enumerate(zip(columns, widths)):
+            align = "<" if i == 0 else ">"  # Left-align first column, right-align others
+            format_str += f"{{:{align}{width}s}} "
+            
+        output = format_str.format(*columns)
+        
+        total_width = sum(widths) + len(widths) - 1  
+        output += "\n" + "-" * total_width
+        
+        return output
+    
+    @staticmethod
+    def _print_assignment_nn(labels, exp, probs, sigma, mu):
+        """Print assignment table for neural network model results.
+        
+        Args:
+            labels: Atom labels
+            exp: Experimental chemical shifts
+            probs: Probability values
+            sigma: Standard deviation values
+            mu: Mean values
+            
+        Returns:
+            str: Formatted table of assignments
+        """
+        # Calculate errors from means and exps
+        error = np.abs(mu - exp)
+        sdev = error / sigma
+        
+        s = np.argsort(mu)
         slabels = labels[s]
+        svalues = mu[s]
+        sexp = exp[s]
+        serror = error[s]
+        ssigma = sigma[s]
+        sdev = sdev[s]
+        sprob = probs[s]
+
+        columns = ["Label", "Calc", "Exp", "Error", "σ", "Deviation", "Prob"]
+        
+        output = DP5Data._format_table_header(columns)
+        
+        for lab, calc, ex, er, sig, dev, prob in zip(slabels, svalues, sexp, serror, ssigma, sdev, sprob):
+            output += "\n{:<8s} {:8.2f} {:8.2f} {:8.2f} {:8.2f} {:8.2f}σ {:8.2f}".format(
+                lab, calc, ex, er, sig, dev, prob
+            )
+        return output
+    
+    @staticmethod
+    def _print_assignment_dft(labels, calculated, exp, error, probs):
+        """Print assignment table for DFT calculation results.
+        
+        Args:
+            labels: Atom labels
+            calculated: Calculated chemical shifts
+            exp: Experimental chemical shifts
+            error: Atomic errors
+            probs: Atomic probabilities
+            
+        Returns:
+            str: Formatted table of assignments
+        """
+        # sort by calculated values
+        s = np.argsort(calculated)
+        slabels = labels[s]
+        svalues = calculated[s]
         sexp = exp[s]
         serror = error[s]
         sprob = probs[s]
 
-        output = f"\nlabel, calc, exp, error, prob"
-
+        columns = ["Label", "Calc", "Exp", "Error", "Prob"]
+        
+        output = DP5Data._format_table_header(columns)
+        
         for lab, calc, ex, er, p in zip(slabels, svalues, sexp, serror, sprob):
-            output += f"\n{lab:6s} {calc:6.2f} {ex:6.2f} {er:6.2f} {p:6.2f}"
+            output += "\n{:<8s} {:8.2f} {:8.2f} {:8.2f} {:8.2f}".format(
+                lab, calc, ex, er, p
+            )
         return output
-
 
 def _load_pickle(path: str):
     """

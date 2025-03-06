@@ -97,6 +97,10 @@ start_time = "" # set automatically
 
 max_concurrent_jobs = 75 # 75 on Ziggy, 320 on Darwin
 
+[nn_model]
+model = "cascade" # accepts "cascade" or "sgnn"
+n_forward_pass = 50 # number of forward passes for sgnn inference
+
 [dp4]
 
 stats_model = "g"

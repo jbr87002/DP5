@@ -170,6 +170,13 @@ class Molecule:
         return self._populations
 
     def boltzmann_weighting(self, attr: str):
+        """
+        Performs Boltzmann weighting across conformers
+        Arguments:
+        - attr: attribute name containing predictions
+        Returns:
+        - weighted predictions maintaining the same shape per atom
+        """
         # recomputes populations just in case
         data = getattr(self, attr)
         data = np.array(data, dtype=np.float32)
@@ -226,7 +233,7 @@ class Molecules:
     def get_nn_nmr_shifts(self):
         """Should get C and H shifts"""
         mols = [mol.rdkit_mols for mol in self.mols]
-        cascade_shifts_labels = get_nn_shifts(mols)
+        cascade_shifts_labels = get_nn_shifts(mols, model=self.config["nn_model"]["model"], n_forward_pass=self.config["nn_model"]["n_forward_pass"])
         for mol, *m_shift_label in zip(self.mols, *cascade_shifts_labels):
             mol.add_nn_shifts(m_shift_label)
 
@@ -236,7 +243,7 @@ class Molecules:
             mol.assign_nmr(C_exp, H_exp)
 
     def dp5_analysis(self):
-        dp5 = DP5(self.config["output_folder"], self.config["workflow"]["dft_nmr"])
+        dp5 = DP5(self.config["output_folder"], self.config["workflow"]["dft_nmr"], self.config["nn_model"]["model"])
         self.dp5_output = dp5(self.mols)
 
     def dp4_analysis(self):
