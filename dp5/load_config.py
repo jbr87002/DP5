@@ -12,16 +12,19 @@ from pathlib import Path
 import argparse
 import os
 import logging
+import shutil
 
 import tomli
 import json
 
-from dp5.run import runner, setup_logger, prepare_inputs
+from dp5.run import prepare_inputs
+from .runner import runner
+from .logger import setup_logger
 
 LOGLEVEL_CHOICES = tuple(level.lower() for level in logging._nameToLevel.keys())
 
 DEFAULT_BASE_CONFIG_PATH = (
-    Path(__file__).parent.parent / "config/default_config.toml"
+    Path(__file__).parent / "config/default_config.toml"
 ).resolve()
 
 
@@ -94,6 +97,8 @@ def main():
 
     parser.add_argument("-l", "--log_filename", help="Path to log file", default="")
 
+    parser.add_argument("--remove", help="Remove old calculation dirs in output folder", action="store_true")
+
     parser.add_argument("--log_level", choices=LOGLEVEL_CHOICES)
 
     args = parser.parse_args()
@@ -141,6 +146,12 @@ def main():
     logger.info(f"DP4 analysis required: {config['workflow']['dp4']}")
     logger.info(f"DP5 analysis required: {config['workflow']['dp5']}")
 
+    # calculations_complete should set MM and DFT completion flags as True
+    if config["workflow"]["calculations_complete"]:
+        config["workflow"]["mm_complete"] = True
+        config["dft"]["dft_complete"] = True
+        config["workflow"]["dft_complete"] = True
+
     # reads command line argument if supplied, else reads config
     if args.structure_files:
         config["structure"] = args.structure_files
@@ -169,7 +180,7 @@ def main():
         raise ValueError("No NMR data specified")
 
     # set up TMS constants
-    with open((Path(__file__).parent.parent / "dft" / "TMSdata").resolve()) as file:
+    with open((Path(__file__).parent / "dft" / "TMSdata").resolve()) as file:
         _params_found = False
         _solvent = config["dft"]["solvent"] if config["dft"]["solvent"] else "none"
         for line in file:
@@ -226,6 +237,13 @@ def main():
         cfg = config.copy()
         cfg["output_folder"] = str(cfg["output_folder"])
         json.dump(cfg, f, indent=4)
+    
+    if args.remove:
+        for folder in ['dp4', 'dp5']:
+            folder_path = config["output_folder"] / folder
+            if folder_path.exists():
+                logger.info(f"Removing {folder_path}")
+                shutil.rmtree(folder_path)
 
     logger.info("Configuration saved to %s" % str(config["output_folder"]))
 
