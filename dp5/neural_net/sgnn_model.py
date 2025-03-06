@@ -26,7 +26,7 @@ def load_model_metadata(model_path):
     Returns:
     - dict containing model metadata
     """
-    metadata_path = Path(__file__).parent / (Path(model_path).stem + '_metadata.json')
+    metadata_path = Path(__file__).parent / 'sgnn_models' / (Path(model_path).stem + '_metadata.json')
     if not metadata_path.exists():
         raise FileNotFoundError(f"Model metadata not found at {metadata_path}")
     
