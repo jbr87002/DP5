@@ -28,91 +28,10 @@ DEFAULT_BASE_CONFIG_PATH = (
 ).resolve()
 
 
-def main():
-
-    parser = argparse.ArgumentParser(
-        description="Load config and start the workflow manager."
-    )
-
-    parser.add_argument(
-        "-s",
-        "--structure_files",
-        nargs="+",
-        default=[],
-        type=str,
-        help="One or more SDF file for the structures to be verified by DP4. At least one\
-    is required, if automatic diastereomer generation is used.",
-    )
-
-    parser.add_argument(
-        "-n",
-        "--nmr_file",
-        nargs="+",
-        help="Experimental NMR description, assigned\
-    with the atom numbers from the structure file",
-    )
-
-    parser.add_argument(
-        "-c",
-        "--config",
-        help="Load a config file",
-        type=str,
-        default=DEFAULT_BASE_CONFIG_PATH,
-    )
-
-    parser.add_argument(
-        "-o",
-        "--output",
-        help="Output directory for calculations, default is current working directory.",
-        default="",
-    )
-
-    parser.add_argument(
-        "-i",
-        "--input_type",
-        help="Input file format. Default is sdf.",
-        choices=["sdf", "smiles", "smarts", "inchi"],
-        default="sdf",
-    )
-
-    parser.add_argument(
-        "-m",
-        "--model",
-        help="Model to use for NMR shift prediction. Default is cascade. Options are cascade and sgnn.",
-        choices=["cascade", "sgnn"],
-        default="cascade",
-    )
-
-    parser.add_argument(
-        "-w",
-        "--workflow",
-        help="Defines which steps to include in the workflow, "
-        "can contain g for generate diastereomers, m for molecular mechanics conformational search, "
-        "o for DFT optimization, e for DFT single-point energies, n for DFT NMR calculation, "
-        "a for computational and experimental NMR data extraction, "
-        "s for computational and experimental NMR data extraction and stats analysis, "
-        "w for DP5 probability calculation.",
-        required=False,
-    )
-
-    parser.add_argument(
-        "--stereocentres",
-        nargs="*",
-        default=[],
-        type=int,
-        help="Atom indices matching input SD File for stereocentres to mutate, keep the rest intact.",
-    )
-
-    parser.add_argument("-l", "--log_filename", help="Path to log file", default="")
-
-    parser.add_argument("--remove", help="Remove old calculation dirs in output folder", action="store_true")
-
-    parser.add_argument("--log_level", choices=LOGLEVEL_CHOICES)
-
-    args = parser.parse_args()
+def run_workflow(structure_files, nmr_files, output_path=None, input_type="smiles", workflow=None, stereocentres=None, model=None, remove_previous=False):
 
     # load custom configuration
-    config_path = (Path.cwd() / args.config).resolve()
+    config_path = DEFAULT_BASE_CONFIG_PATH
     if config_path.suffix == ".toml":
         with open(config_path, "rb") as f:
             config = tomli.load(f)
@@ -120,28 +39,25 @@ def main():
         with open(config_path, "rb") as f:
             config = json.load(f)
 
-    # commandline overrides all config files
-    if args.log_level is not None:
-        config["log_level"] = args.log_level
     logger = setup_logger(
         name=__package__,
         level=config["log_level"].upper(),
-        filename=args.log_filename,
+        filename=""
         propagate=True,
     )
 
     logger.info("Preparing configuration")
     # Override workflow flag
-    if args.workflow is not None:
-        config["workflow"]["cleanup"] = "c" in args.workflow
-        config["workflow"]["generate"] = "g" in args.workflow
-        config["workflow"]["conf_search"] = "m" in args.workflow
-        config["workflow"]["dft_nmr"] = "n" in args.workflow
-        config["workflow"]["dft_energies"] = "e" in args.workflow
+    if workflow is not None:
+        config["workflow"]["cleanup"] = "c" in workflow
+        config["workflow"]["generate"] = "g" in workflow
+        config["workflow"]["conf_search"] = "m" in workflow
+        config["workflow"]["dft_nmr"] = "n" in workflow
+        config["workflow"]["dft_energies"] = "e" in workflow
         config["workflow"]["dft_opt"] = "o" in args.workflow
-        config["workflow"]["dp4"] = "s" in args.workflow
-        config["workflow"]["dp5"] = "w" in args.workflow
-        config["workflow"]["assign_only"] = "a" in args.workflow
+        config["workflow"]["dp4"] = "s" in workflow
+        config["workflow"]["dp5"] = "w" in workflow
+        config["workflow"]["assign_only"] = "a" in workflow
 
     logger.info(f"Structure cleanup required: {config['workflow']['cleanup']}")
     logger.info(f"Diastereomer generation required: {config['workflow']['generate']}")
@@ -161,10 +77,10 @@ def main():
         config["workflow"]["dft_complete"] = True
 
     # reads command line argument if supplied, else reads config
-    if args.structure_files:
-        config["structure"] = args.structure_files
-        config["input_type"] = args.input_type
-        config["stereocentres"] = args.stereocentres
+    if structure_files:
+        config["structure"] = structure_files
+        config["input_type"] = input_type
+        config["stereocentres"] = stereocentres
         logger.debug(
             f"Read structures {', '.join(config['structure'])} from command line"
         )
@@ -178,12 +94,12 @@ def main():
 
     logger.info(f"Structure input files: {', '.join(config['structure'])}")
 
-    if args.model:
-        config["nn_model"]["model"] = args.model
+    if model:
+        config["nn_model"]["model"] = model
 
-    if args.nmr_file:
-        logger.debug(f"Read NMR File {args.nmr_file} from command line")
-        config["nmr_file"] = args.nmr_file
+    if nmr_files:
+        logger.debug(f"Read NMR File {nmr_files} from command line")
+        config["nmr_file"] = nmr_files
     elif config["nmr_file"]:
         logger.debug(f"Read NMR File {config['nmr_file']} from config file")
     else:
@@ -227,8 +143,8 @@ def main():
     logger.info(f"13C reference shielding: {config['dft']['c13_tms']:.1f} ppm")
     logger.info(f"1H reference shielding: {config['dft']['h1_tms']:.2f} ppm")
 
-    if args.output:
-        config["output_folder"] = args.output
+    if output_path:
+        config["output_folder"] = output_path
     config["output_folder"] = (Path.cwd() / config["output_folder"]).resolve()
 
     config["dft"]["solvent"] = config["solvent"]
@@ -249,7 +165,7 @@ def main():
         cfg["output_folder"] = str(cfg["output_folder"])
         json.dump(cfg, f, indent=4)
     
-    if args.remove:
+    if remove_previous:
         for folder in ['dp4', 'dp5']:
             folder_path = config["output_folder"] / folder
             if folder_path.exists():
@@ -261,7 +177,3 @@ def main():
     runner(config)
 
     logger.info("Program terminated normally")
-
-
-if __name__ == "__main__":
-    main()
