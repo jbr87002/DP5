@@ -198,7 +198,7 @@ def build_model(model_file):
 
 
 def extract_representations(model, test, batch_size):
-    with open(Path(__file__).parent / "mean_model_preprocessor.p", "rb") as f:
+    with open(Path(__file__).parent / "cascade_models/mean_model_preprocessor.p", "rb") as f:
         preprocessor = pickle.load(f)
     inputs_test = preprocessor.predict(Mol_iter2(test))
     test_sequence = RBFSequence(inputs_test, test.atom_index, batch_size)
@@ -222,7 +222,7 @@ def extract_Error_reps(model, test, Settings):
     batch_size = 1
 
     preprocessor = pickle.load(
-        open(Path(Settings.ScriptDir) / "mean_model_preprocessor.p", "rb")
+        open(Path(Settings.ScriptDir) / "cascade_models/mean_model_preprocessor.p", "rb")
     )
 
     inputs_test = preprocessor.predict(Mol_iter2(test))
@@ -255,7 +255,7 @@ def extract_Exp_reps(model, test, Settings):
     batch_size = 1
 
     preprocessor = pickle.load(
-        open(Path(Settings.ScriptDir) / "mean_model_preprocessor.p", "rb")
+        open(Path(Settings.ScriptDir) / "cascade_models/mean_model_preprocessor.p", "rb")
     )
 
     inputs_test = preprocessor.predict(Mol_iter2(test))
@@ -284,7 +284,7 @@ def extract_Exp_reps(model, test, Settings):
 
 
 def load_NMR_prediction_model(
-    filepath="NMRdb-CASCADEset_Exp_mean_model_atom_features256.hdf5",
+    filepath="cascade_models/NMRdb-CASCADEset_Exp_mean_model_atom_features256.hdf5",
 ):
     """
     Loads NMR predicting model. Make sure your model is in neural_net folder!
@@ -447,7 +447,7 @@ class PercentileRegressor:
     def from_cascade(
         cls,
         quantiles,
-        model_path="NMRdb-CASCADEset_Exp_mean_model_atom_features256.hdf5",
+        model_path="cascade_models/NMRdb-CASCADEset_Exp_mean_model_atom_features256.hdf5",
     ):
         dims = len(quantiles)
         full_model = load_NMR_prediction_model(model_path)

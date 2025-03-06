@@ -14,7 +14,7 @@ from sklearn.neighbors import KernelDensity
 
 CASCADE_AVAILABLE = False
 try:
-    from dp5.neural_net.CNN_model import *
+    from dp5.neural_net.cascade_model import *
     CASCADE_AVAILABLE = True
 except ImportError:
     # Create a dummy function for filter_shifts
@@ -478,7 +478,7 @@ class QuantileDP5ProbabilityCalculator(DP5ProbabilityCalculator):
         self, atom_type, model_file, batch_size, nn_model="cascade", quantile_regressor="quantile99.zip"
     ):
         super().__init__(atom_type)
-        default_path = str(Path(__file__).parent.parent / "neural_net" / f"{nn_model}_models" / model_file)
+        default_path = str(Path(__file__).parent.parent / "neural_net" /  model_file)
         if nn_model == "cascade":
             self.model = CASCADE_Quantile.load(default_path)
         elif nn_model == "sgnn":
