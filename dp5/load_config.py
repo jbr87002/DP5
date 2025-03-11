@@ -28,7 +28,19 @@ DEFAULT_BASE_CONFIG_PATH = (
 ).resolve()
 
 
-def run_workflow(structure_files, nmr_files, output_path=None, input_type="smiles", workflow=None, stereocentres=None, model=None, remove_previous=False):
+def run_workflow(
+    structure_files, 
+    nmr_files=None, 
+    output_path=None, 
+    input_type="smiles", 
+    workflow=None, 
+    stereocentres=None, 
+    model=None, 
+    remove_previous=False, 
+    save_checkpoints=False,
+    load_checkpoint=None,
+    skip_nmr=False
+):
 
     # load custom configuration
     config_path = DEFAULT_BASE_CONFIG_PATH
@@ -42,7 +54,7 @@ def run_workflow(structure_files, nmr_files, output_path=None, input_type="smile
     logger = setup_logger(
         name=__package__,
         level=config["log_level"].upper(),
-        filename=""
+        filename="",
         propagate=True,
     )
 
@@ -54,7 +66,7 @@ def run_workflow(structure_files, nmr_files, output_path=None, input_type="smile
         config["workflow"]["conf_search"] = "m" in workflow
         config["workflow"]["dft_nmr"] = "n" in workflow
         config["workflow"]["dft_energies"] = "e" in workflow
-        config["workflow"]["dft_opt"] = "o" in args.workflow
+        config["workflow"]["dft_opt"] = "o" in workflow
         config["workflow"]["dp4"] = "s" in workflow
         config["workflow"]["dp5"] = "w" in workflow
         config["workflow"]["assign_only"] = "a" in workflow
@@ -97,51 +109,60 @@ def run_workflow(structure_files, nmr_files, output_path=None, input_type="smile
     if model:
         config["nn_model"]["model"] = model
 
-    if nmr_files:
+    # Handle NMR file - optional input, not needed if just calculating NMR shifts
+    if skip_nmr:
+        logger.info("Skipping NMR processing as requested")
+        config["nmr_file"] = None
+    elif nmr_files:
         logger.debug(f"Read NMR File {nmr_files} from command line")
         config["nmr_file"] = nmr_files
     elif config["nmr_file"]:
         logger.debug(f"Read NMR File {config['nmr_file']} from config file")
     else:
-        logger.critical("No NMR data specified")
-        raise ValueError("No NMR data specified")
+        logger.info("No NMR data specified, will only calculate NMR shifts")
+        config["nmr_file"] = None
+        # Disable DP4 and DP5 analysis if no NMR data
+        config["workflow"]["dp4"] = False
+        config["workflow"]["dp5"] = False
 
-    # set up TMS constants
-    with open((Path(__file__).parent / "dft" / "TMSdata").resolve()) as file:
-        _params_found = False
-        _solvent = config["dft"]["solvent"] if config["dft"]["solvent"] else "none"
-        for line in file:
-            line = line.strip()
-            if line:
-                functional, basis_set, solvent, tms_c, tms_h = line.split()
-                if (
-                    config["dft"]["n_functional"] == functional
-                    and config["dft"]["n_basis_set"] == basis_set
-                    and _solvent == solvent
-                ):
-                    _params_found = True
+    # Only set up TMS constants if we're doing DFT NMR calculations
+    if config["workflow"]["dft_nmr"] or not config["nmr_file"]:
+        # set up TMS constants
+        with open((Path(__file__).parent / "dft" / "TMSdata").resolve()) as file:
+            _params_found = False
+            _solvent = config["dft"]["solvent"] if config["dft"]["solvent"] else "none"
+            for line in file:
+                line = line.strip()
+                if line:
+                    functional, basis_set, solvent, tms_c, tms_h = line.split()
+                    if (
+                        config["dft"]["n_functional"] == functional
+                        and config["dft"]["n_basis_set"] == basis_set
+                        and _solvent == solvent
+                    ):
+                        _params_found = True
 
-                    config["dft"]["c13_tms"] = float(tms_c)
-                    config["dft"]["h1_tms"] = float(tms_h)
+                        config["dft"]["c13_tms"] = float(tms_c)
+                        config["dft"]["h1_tms"] = float(tms_h)
 
-                    break
+                        break
 
-    if not _params_found:
-        logger.warning(
-            "No reference shielding found for the conditions, using default values!"
+        if not _params_found:
+            logger.warning(
+                "No reference shielding found for the conditions, using default values!"
+            )
+            functional, basis_set, solvent = ("b3lyp", "6-31G**", "none")
+
+        logger.info("Read shielding parameters for: ")
+        logger.info(
+            "NMR DFT functional: %s, basis set: %s, solvent: %s",
+            functional,
+            basis_set,
+            solvent,
         )
-        functional, basis_set, solvent = ("b3lyp", "6-31G**", "none")
 
-    logger.info("Read shielding parameters for: ")
-    logger.info(
-        "NMR DFT functional: %s, basis set: %s, solvent: %s",
-        functional,
-        basis_set,
-        solvent,
-    )
-
-    logger.info(f"13C reference shielding: {config['dft']['c13_tms']:.1f} ppm")
-    logger.info(f"1H reference shielding: {config['dft']['h1_tms']:.2f} ppm")
+        logger.info(f"13C reference shielding: {config['dft']['c13_tms']:.1f} ppm")
+        logger.info(f"1H reference shielding: {config['dft']['h1_tms']:.2f} ppm")
 
     if output_path:
         config["output_folder"] = output_path
@@ -158,7 +179,16 @@ def run_workflow(structure_files, nmr_files, output_path=None, input_type="smile
 
     logger.info(f"Final structure input files:{config['structure']}")
 
-    logger.info(f"NMR input paths:{config['nmr_file']}")
+    if config["nmr_file"]:
+        logger.info(f"NMR input paths:{config['nmr_file']}")
+
+    # Create output directory if it doesn't exist
+    config["output_folder"].mkdir(parents=True, exist_ok=True)
+    
+    # Add checkpoint configuration
+    config["save_checkpoints"] = save_checkpoints
+    if load_checkpoint:
+        config["load_checkpoint"] = load_checkpoint
 
     with open(config["output_folder"] / "config.json", "w") as f:
         cfg = config.copy()
@@ -174,6 +204,9 @@ def run_workflow(structure_files, nmr_files, output_path=None, input_type="smile
 
     logger.info("Configuration saved to %s" % str(config["output_folder"]))
 
-    runner(config)
+    # run the workflow and get the data object
+    data = runner(config)
 
     logger.info("Program terminated normally")
+    
+    return data

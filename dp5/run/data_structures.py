@@ -9,6 +9,9 @@ from dp5.neural_net.nn_utils import get_nn_shifts
 from dp5.analysis.dp5 import DP5
 from dp5.analysis.dp4 import DP4
 
+import pickle
+from pathlib import Path
+
 
 class Molecule:
     def __init__(self, input_file: str):
@@ -215,11 +218,44 @@ class Molecules:
     def __getitem__(self, idx):
         return self.mols[idx]
 
+    def save(self, filepath=None):
+        """Save the Molecules object to a pickle file.
+        
+        Args:
+            filepath: Path to save the pickle file. If None, uses the output folder from config.
+        """
+        if filepath is None:
+            filepath = Path(self.config["output_folder"]) / "molecules.pkl"
+        
+        with open(filepath, 'wb') as f:
+            pickle.dump(self, f)
+        
+        return filepath
+    
+    @classmethod
+    def load(cls, filepath):
+        """Load a Molecules object from a pickle file.
+        
+        Args:
+            filepath: Path to the pickle file.
+            
+        Returns:
+            Molecules: The loaded Molecules object.
+        """
+        import pickle
+        
+        with open(filepath, 'rb') as f:
+            return pickle.load(f)
+    
     def get_conformers(self):
         """Runs conformational search."""
         mm_data = conf_search(self.mols, self.config["conformer_search"])
         for mol, data in zip(self.mols, mm_data):
             mol.add_conformer_data(data)
+        
+        # Save checkpoint after conformer search
+        if self.config.get("save_checkpoints", False):
+            self.save(Path(self.config["output_folder"]) / "molecules_after_conformers.pkl")
 
     def get_dft_data(self):
         """Runs DFT calculations"""
@@ -229,6 +265,10 @@ class Molecules:
         )
         for mol, data in zip(self.mols, dft_data):
             mol.add_dft_data(data)
+            
+        # Save checkpoint after DFT calculations
+        if self.config.get("save_checkpoints", False):
+            self.save(Path(self.config["output_folder"]) / "molecules_after_dft.pkl")
 
     def get_nn_nmr_shifts(self):
         """Should get C and H shifts"""
@@ -236,6 +276,45 @@ class Molecules:
         cascade_shifts_labels = get_nn_shifts(mols, model=self.config["nn_model"]["model"], n_forward_pass=self.config["nn_model"]["n_forward_pass"])
         for mol, *m_shift_label in zip(self.mols, *cascade_shifts_labels):
             mol.add_nn_shifts(m_shift_label)
+            
+        # Save checkpoint after NN NMR shifts
+        if self.config.get("save_checkpoints", False):
+            self.save(Path(self.config["output_folder"]) / "molecules_after_nn_nmr.pkl")
+            
+        # Save shifts to CSV files
+        self.save_nmr_shifts()
+            
+    def save_nmr_shifts(self, directory=None):
+        """Save NMR shifts to CSV files.
+        
+        Args:
+            directory: Directory to save the CSV files. If None, uses the output folder from config.
+        """
+        import pandas as pd
+        from pathlib import Path
+        
+        if directory is None:
+            directory = Path(self.config["output_folder"])
+        else:
+            directory = Path(directory)
+            
+        directory.mkdir(parents=True, exist_ok=True)
+        
+        for i, mol in enumerate(self.mols):
+            # Create dataframes for carbon and proton shifts
+            if hasattr(mol, 'C_shifts') and hasattr(mol, 'C_labels'):
+                c_shifts = pd.DataFrame({
+                    'atom_idx': mol.C_labels,
+                    'shift': mol.C_shifts
+                })
+                c_shifts.to_csv(directory / f"molecule_{i+1}_carbon_shifts.csv", index=False)
+                
+            if hasattr(mol, 'H_shifts') and hasattr(mol, 'H_labels'):
+                h_shifts = pd.DataFrame({
+                    'atom_idx': mol.H_labels,
+                    'shift': mol.H_shifts
+                })
+                h_shifts.to_csv(directory / f"molecule_{i+1}_proton_shifts.csv", index=False)
 
     def assign_nmr_spectra(self, nmrdata):
         for mol in self.mols:
