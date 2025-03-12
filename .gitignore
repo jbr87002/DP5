@@ -17,4 +17,5 @@ dp5/old_files
 test
 
 *.sdf
+*.mae
 examples/nmr_shifts_output/
