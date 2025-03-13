@@ -39,7 +39,8 @@ def run_workflow(
     remove_previous=False, 
     save_checkpoints=False,
     load_checkpoint=None,
-    skip_nmr=False
+    skip_nmr=False,
+    shifts_from_cache=False,
 ):
 
     # load custom configuration
@@ -108,6 +109,9 @@ def run_workflow(
 
     if model:
         config["nn_model"]["model"] = model
+    
+    if shifts_from_cache:
+        config["workflow"]["shifts_from_cache"] = shifts_from_cache
 
     # Handle NMR file - optional input, not needed if just calculating NMR shifts
     if skip_nmr:
@@ -189,7 +193,7 @@ def run_workflow(
     config["save_checkpoints"] = save_checkpoints
     if load_checkpoint:
         config["load_checkpoint"] = load_checkpoint
-
+    
     with open(config["output_folder"] / "config.json", "w") as f:
         cfg = config.copy()
         cfg["output_folder"] = str(cfg["output_folder"])

@@ -35,10 +35,13 @@ def main():
         input_type="smiles",
         workflow="w",  # Just do conformational search, no DFT
         save_checkpoints=True,  # Save checkpoints
-        skip_nmr=True  # Skip NMR processing
+        skip_nmr=True,  # Skip NMR processing
+        model='sgnn'
     )
     
-    print("\nNMR shifts have been calculated and saved to CSV files in:", output_dir)
+    print("\nNMR shifts have been calculated and saved to JSON files in:", output_dir)
+    print("- carbon_shifts.json: Contains all carbon NMR shifts")
+    print("- proton_shifts.json: Contains all proton NMR shifts")
     print("The Molecules object has been saved to checkpoints for later use.")
     
     # Example of loading from a checkpoint
@@ -49,6 +52,18 @@ def main():
         print(f"data = Molecules.load('{checkpoint_file}')")
         print(f"# Now you can access the data directly")
         print(f"# For example: data.mols[0].C_shifts")
+        
+        # Example of reading the JSON files
+        print(f"\nTo read the JSON files in another script:")
+        print(f"import json")
+        print(f"with open('{output_dir}/carbon_shifts.json', 'r') as f:")
+        print(f"    carbon_shifts = json.load(f)")
+        print(f"with open('{output_dir}/proton_shifts.json', 'r') as f:")
+        print(f"    proton_shifts = json.load(f)")
+        print(f"# Access shifts by InChI key")
+        print(f"# For example: carbon_shifts['INCHIKEY']['shifts']")
+        print(f"# The molecule name is stored in: carbon_shifts['INCHIKEY']['name']")
+        print(f"# The SMILES is stored in: carbon_shifts['INCHIKEY']['smiles']")
 
 if __name__ == "__main__":
     main() 

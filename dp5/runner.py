@@ -59,8 +59,21 @@ def runner(config):
         logger.info("No DFT calculations requested")
 
     if not config["workflow"]["dft_nmr"]:
-        logger.info("Generating chemical shifts using a neural network")
-        data.get_nn_nmr_shifts()
+        shifts_loaded = False
+        try:
+            logger.info("Attempting to load NMR shifts from cache")
+            data.load_nmr_shifts()
+            shifts_loaded = True
+        except Exception as e:
+            logger.error(f"Error loading NMR shifts from cache: {e}")
+
+        if not shifts_loaded:
+            logger.info("Generating chemical shifts using a neural network")
+            data.get_nn_nmr_shifts()
+    
+            # Save newly predicted NMR shifts to JSON file
+            logger.info("Saving NMR shifts to JSON file")
+            data.save_nmr_shifts()
 
     # If nmr_file is not provided, skip NMR processing and DP4/DP5 analysis
     if not config.get("nmr_file"):

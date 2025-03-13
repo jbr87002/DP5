@@ -10,6 +10,7 @@ from dp5.analysis.dp5 import DP5
 from dp5.analysis.dp4 import DP4
 
 import pickle
+import json
 from pathlib import Path
 
 
@@ -281,18 +282,12 @@ class Molecules:
         if self.config.get("save_checkpoints", False):
             self.save(Path(self.config["output_folder"]) / "molecules_after_nn_nmr.pkl")
             
-        # Save shifts to CSV files
-        self.save_nmr_shifts()
-            
     def save_nmr_shifts(self, directory=None):
-        """Save NMR shifts to CSV files.
+        """Save NMR shifts to JSON files.
         
         Args:
-            directory: Directory to save the CSV files. If None, uses the output folder from config.
+            directory: Directory to save the JSON files. If None, uses the output folder from config.
         """
-        import pandas as pd
-        from pathlib import Path
-        
         if directory is None:
             directory = Path(self.config["output_folder"])
         else:
@@ -300,21 +295,143 @@ class Molecules:
             
         directory.mkdir(parents=True, exist_ok=True)
         
-        for i, mol in enumerate(self.mols):
-            # Create dataframes for carbon and proton shifts
+        # Create dictionaries for carbon and proton shifts
+        carbon_shifts = {}
+        proton_shifts = {}
+        
+        for mol in self.mols:
+            # Get SMILES
+            mol_without_hs = Chem.RemoveHs(mol._mol)
+            smiles = Chem.MolToSmiles(mol_without_hs)
+            
+            # Get InChI key as the identifier
+            inchi_key = Chem.MolToInchiKey(mol_without_hs)
+            
+            # Process carbon shifts
             if hasattr(mol, 'C_shifts') and hasattr(mol, 'C_labels'):
-                c_shifts = pd.DataFrame({
-                    'atom_idx': mol.C_labels,
-                    'shift': mol.C_shifts
-                })
-                c_shifts.to_csv(directory / f"molecule_{i+1}_carbon_shifts.csv", index=False)
-                
+                carbon_data = {
+                    'name': mol.base_name,  # Include original name for reference
+                    'smiles': smiles,
+                    'shifts': {int(atom_idx[1:])-1: round(float(shift), 2) for atom_idx, shift in zip(mol.C_labels, mol.C_shifts)}
+                }
+                carbon_shifts[inchi_key] = carbon_data
+            
+            # Process proton shifts
             if hasattr(mol, 'H_shifts') and hasattr(mol, 'H_labels'):
-                h_shifts = pd.DataFrame({
-                    'atom_idx': mol.H_labels,
-                    'shift': mol.H_shifts
-                })
-                h_shifts.to_csv(directory / f"molecule_{i+1}_proton_shifts.csv", index=False)
+                proton_data = {
+                    'name': mol.base_name,  # Include original name for reference
+                    'smiles': smiles,
+                    'shifts': {int(atom_idx[1:])-1: round(float(shift), 2) for atom_idx, shift in zip(mol.H_labels, mol.H_shifts)}
+                }
+                proton_shifts[inchi_key] = proton_data
+        
+        # Save to JSON files
+        if carbon_shifts:
+            with open(directory / "carbon_shifts.json", 'w') as f:
+                json.dump(carbon_shifts, f, indent=2)
+        
+        if proton_shifts:
+            with open(directory / "proton_shifts.json", 'w') as f:
+                json.dump(proton_shifts, f, indent=2)
+                
+    def load_nmr_shifts(self, directory=None):
+        """Load NMR shifts from JSON files.
+        
+        Args:
+            directory: Directory containing the JSON files. If None, uses the output folder from config.
+            
+        Returns:
+            bool: True if shifts were successfully loaded, False otherwise.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        if directory is None:
+            directory = Path(self.config["output_folder"])
+        else:
+            directory = Path(directory)
+        
+        carbon_file = directory / "carbon_shifts.json"
+        proton_file = directory / "proton_shifts.json"
+        
+        # Check if files exist
+        if not carbon_file.exists() or not proton_file.exists():
+            logger.warning(f"NMR shift JSON files not found in {directory}")
+            return False
+        
+        # Load the JSON files
+        try:
+            with open(carbon_file, 'r') as f:
+                carbon_shifts = json.load(f)
+            
+            with open(proton_file, 'r') as f:
+                proton_shifts = json.load(f)
+        except json.JSONDecodeError:
+            logger.error(f"Error decoding JSON files in {directory}")
+            return False
+        
+        # Map molecules to their InChI keys
+        mol_inchi_map = {}
+        for mol in self.mols:
+            mol_without_hs = Chem.RemoveHs(mol._mol)
+            inchi_key = Chem.MolToInchiKey(mol_without_hs)
+            mol_inchi_map[inchi_key] = mol
+        
+        # check if we have shifts for all molecules
+        missing_mols = []
+        for inchi_key, mol in mol_inchi_map.items():
+            if inchi_key not in carbon_shifts:
+                missing_mols.append(mol.base_name)
+        
+        if missing_mols:
+            logger.warning(f"Missing shifts for molecules: {', '.join(missing_mols)}")
+            if len(missing_mols) == len(self.mols):
+                logger.error("No shifts found for any molecules")
+                return False
+        
+        # apply shifts to molecules
+        shifts_loaded = False
+        for inchi_key, mol in mol_inchi_map.items():
+            if inchi_key in carbon_shifts:
+                # Convert atom indices back to the format expected by the molecule
+                c_shifts_dict = carbon_shifts[inchi_key]['shifts']
+                c_shifts = []
+                c_labels = []
+                
+                # Sort by atom index to ensure correct order
+                for atom_idx in sorted([int(idx) for idx in c_shifts_dict.keys()]):
+                    c_labels.append(f"C{atom_idx+1}")
+                    c_shifts.append(float(c_shifts_dict[str(atom_idx)]))
+                
+                # create conformer predictions
+                mol.C_labels = np.array(c_labels)
+                mol.conformer_C_pred = np.array([c_shifts])
+                
+                shifts_loaded = True
+            
+            if inchi_key in proton_shifts:
+                # Convert atom indices back to the format expected by the molecule
+                h_shifts_dict = proton_shifts[inchi_key]['shifts']
+                h_shifts = []
+                h_labels = []
+                
+                # Sort by atom index to ensure correct order
+                for atom_idx in sorted([int(idx) for idx in h_shifts_dict.keys()]):
+                    h_labels.append(f"H{atom_idx+1}")
+                    h_shifts.append(float(h_shifts_dict[str(atom_idx)]))
+                
+                # create conformer predictions
+                mol.H_labels = np.array(h_labels)
+                mol.conformer_H_pred = np.array([h_shifts])
+                
+                shifts_loaded = True
+        
+        if shifts_loaded:
+            logger.info("Successfully loaded NMR shifts from JSON files")
+            return True
+        else:
+            logger.warning("No shifts were loaded")
+            return False
 
     def assign_nmr_spectra(self, nmrdata):
         for mol in self.mols:
