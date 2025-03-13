@@ -203,7 +203,7 @@ def prepare_inputs(
         logger.info("Generating diastereomers")
         mols2 = [_generate_diastereomers(mol, mutable_atoms) for mol in mols]
     elif workflow["cleanup"] or (
-        not workflow["conf_search"] and not workflow["dft_opt"]
+        not workflow["conf_search"] and not workflow["dft_opt"] and not workflow["shifts_from_cache"]
     ):
         logger.info("Generating MMFF geometries for inputs")
         mols2 = [[cleanup_3d(mol)] for mol in mols]
