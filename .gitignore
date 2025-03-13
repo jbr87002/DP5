@@ -18,4 +18,5 @@ test
 
 *.sdf
 *.mae
+*.com
 examples/nmr_shifts_output/
