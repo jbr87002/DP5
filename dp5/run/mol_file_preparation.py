@@ -4,6 +4,7 @@ from typing import List, Union, Dict
 
 from rdkit import Chem
 from rdkit.Chem import AllChem, EnumerateStereoisomers
+from tqdm import tqdm
 
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ def write_to_sdf(mol: Chem.rdchem.Mol, relative_path: Path):
     return relative_path
 
 
-def cleanup_3d(mol):
+def cleanup_3d(mol, ignore_sanitise_error=False):
     """
     Generates a 3D conformer of a molecule.
 
@@ -43,9 +44,18 @@ def cleanup_3d(mol):
         forceTol=0.0135,
     )
     if cid == -1:
-        raise ValueError("Molecule could not be sanitised")
-    AllChem.MMFFOptimizeMolecule(mol)
-    Chem.rdmolops.AssignStereochemistryFrom3D(mol)
+        if ignore_sanitise_error:
+            logger.warning("Molecule could not be sanitised")
+        else:
+            raise ValueError("Molecule could not be sanitised")
+    try:
+        AllChem.MMFFOptimizeMolecule(mol)
+        Chem.rdmolops.AssignStereochemistryFrom3D(mol)
+    except Exception as e:
+        if ignore_sanitise_error:
+            logger.warning(f"Error optimising molecule: {e}")
+        else:
+            raise ValueError(f"Error optimising molecule: {e}")
 
     return mol
 
@@ -160,7 +170,7 @@ def _generate_diastereomers(
 
 
 def prepare_inputs(
-    input_files: List[str], input_type: str, stereocentres: List[int], workflow: Dict
+    input_files: List[str], input_type: str, stereocentres: List[int], workflow: Dict, nn_model: Dict, ignore_sanitise_error: bool = False
 ) -> List[str]:
     """
     Reads files at the path specified by input config, prepares them as required by the user. Returns paths to the new files.
@@ -203,10 +213,11 @@ def prepare_inputs(
         logger.info("Generating diastereomers")
         mols2 = [_generate_diastereomers(mol, mutable_atoms) for mol in mols]
     elif workflow["cleanup"] or (
-        not workflow["conf_search"] and not workflow["dft_opt"] and not workflow["shifts_from_cache"]
+        not workflow["conf_search"] and not workflow["dft_opt"] and not workflow["shifts_from_cache"] and nn_model["model"] == "cascade"
     ):
+        mol_iterator = tqdm(mols, desc="Generating MMFF geometries", unit="molecule")
         logger.info("Generating MMFF geometries for inputs")
-        mols2 = [[cleanup_3d(mol)] for mol in mols]
+        mols2 = [[cleanup_3d(mol, ignore_sanitise_error=ignore_sanitise_error)] for mol in mol_iterator]
     else:
         mols2 = [[mol] for mol in mols]
 

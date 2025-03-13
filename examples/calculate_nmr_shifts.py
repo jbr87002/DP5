@@ -15,7 +15,7 @@ from dp5.load_config import run_workflow
 
 def main():
     # Example SMILES strings
-    smiles_file = "examples/example_smiles.txt"
+    smiles_file = "/scratch/jbr46/np_atlas_nmr/np_atlas.smi"
     
     # Create the file if it doesn't exist
     if not os.path.exists(smiles_file):
@@ -24,7 +24,7 @@ def main():
             f.write("CC1=C(C=C(C=C1)S(=O)(=O)N)CC(=O)NC2=CC=C(C=C2)OCC3=CC=CC=C3\n")  # Glipizide
     
     # Output directory
-    output_dir = "examples/nmr_shifts_output"
+    output_dir = "/scratch/jbr46/np_atlas_nmr"
     
     # Run the workflow without NMR data, just calculating shifts
     # m = conformational search, n = DFT NMR (disabled here)
@@ -33,8 +33,8 @@ def main():
         nmr_files=None,  # No NMR data
         output_path=output_dir,
         input_type="smiles",
-        workflow="w",  # Just do conformational search, no DFT
-        save_checkpoints=True,  # Save checkpoints
+        workflow="N",  # Just calculate NMR shifts
+        save_checkpoints=False,  # Save checkpoints
         skip_nmr=True,  # Skip NMR processing
         model='sgnn'
     )

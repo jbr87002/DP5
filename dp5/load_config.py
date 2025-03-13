@@ -71,6 +71,7 @@ def run_workflow(
         config["workflow"]["dp4"] = "s" in workflow
         config["workflow"]["dp5"] = "w" in workflow
         config["workflow"]["assign_only"] = "a" in workflow
+        config["workflow"]["calculate_nmr_shifts"] = "N" in workflow
 
     logger.info(f"Structure cleanup required: {config['workflow']['cleanup']}")
     logger.info(f"Diastereomer generation required: {config['workflow']['generate']}")
@@ -179,6 +180,8 @@ def run_workflow(
         config["input_type"],
         config["stereocentres"],
         config["workflow"],
+        config["nn_model"],
+        ignore_sanitise_error=config["workflow"]["calculate_nmr_shifts"]
     )
 
     logger.info(f"Final structure input files:{config['structure']}")
