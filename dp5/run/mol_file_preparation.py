@@ -10,21 +10,21 @@ from tqdm import tqdm
 logger = logging.getLogger(__name__)
 
 
-def write_to_sdf(mol: Chem.rdchem.Mol, relative_path: Path):
+def write_to_sdf(mol: Chem.rdchem.Mol, relative_path: Path, output_folder: str):
     """
     Writes rdkit Mol object to a specified path
 
     arguments:
     - mol: RDKit Mol object
-    - relative_path: path to write the file
+    - relative_path: path to write the file relative to the output folder
 
     returns:
     - input_file: relative path to file from current working directory
     """
-    path = Path.cwd() / relative_path
-    writer = Chem.SDWriter(str(path))
+    file_path = Path(output_folder) / relative_path
+    writer = Chem.SDWriter(str(file_path))
     writer.write(mol)
-    return relative_path
+    return file_path
 
 
 def cleanup_3d(mol, ignore_sanitise_error=False):
@@ -170,7 +170,7 @@ def _generate_diastereomers(
 
 
 def prepare_inputs(
-    input_files: List[str], input_type: str, stereocentres: List[int], workflow: Dict, nn_model: Dict, ignore_sanitise_error: bool = False
+    input_files: List[str], input_type: str, stereocentres: List[int], workflow: Dict, nn_model: Dict, ignore_sanitise_error: bool = False, output_folder: str = None
 ) -> List[str]:
     """
     Reads files at the path specified by input config, prepares them as required by the user. Returns paths to the new files.
@@ -223,13 +223,13 @@ def prepare_inputs(
 
     logger.debug("Preparing to write structure files")
     filenames = []
-    for filename, mol in zip(input_files, mols2):
+    for filename, mol in tqdm(zip(input_files, mols2), desc="Writing structure files", total=len(input_files)):
         for i, isomer in enumerate(mol, start=1):
             if len(mol) == 1:
                 fname = f"{filename[:-4]}.sdf"
             else:
                 fname = f"{filename[:-4]}isomer{i:03}.sdf"
             filenames.append(fname)
-            write_to_sdf(isomer, fname)
+            write_to_sdf(isomer, fname, output_folder)
 
     return filenames

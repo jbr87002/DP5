@@ -9,16 +9,19 @@ from dp5.neural_net.nn_utils import get_nn_shifts
 from dp5.analysis.dp5 import DP5
 from dp5.analysis.dp4 import DP4
 
+from tqdm import tqdm
 import pickle
 import json
 from pathlib import Path
 
 
 class Molecule:
-    def __init__(self, input_file: str):
+    def __init__(self, input_file: str, output_folder: str):
         self.input_file = input_file
+        self.output_folder = output_folder
         self.base_name = input_file.rsplit(".", maxsplit=1)[0]
-        mol = Chem.MolFromMolFile(input_file, removeHs=False)
+        mol_path = Path(output_folder) / input_file
+        mol = Chem.MolFromMolFile(mol_path, removeHs=False)
 
         self.atoms = [at.GetSymbol() for at in mol.GetAtoms()]
         self.conformers = [mol.GetConformer(0).GetPositions()]
@@ -27,7 +30,10 @@ class Molecule:
         # estimates force field energy
         prop = rdForceFieldHelpers.MMFFGetMoleculeProperties(mol, mmffVariant="MMFF94s")
         ff = rdForceFieldHelpers.MMFFGetMoleculeForceField(mol, prop)
-        self._energies = np.array([float(ff.CalcEnergy()) * 4.184])
+        if ff is not None:
+            self._energies = np.array([float(ff.CalcEnergy()) * 4.184])
+        else:
+            self._energies = np.array([0.0])
         # creates mol object for further manipulation
         self._rdkit_mols = None
         self._populations = None
@@ -211,7 +217,8 @@ class Molecules:
 
     def __init__(self, config):
         self.config = config
-        self.mols = [Molecule(mol) for mol in self.config["structure"]]
+        mols_list_iterator = tqdm(self.config["structure"], desc="Loading molecules", total=len(self.config["structure"]))
+        self.mols = [Molecule(mol, config["output_folder"]) for mol in mols_list_iterator]
 
     def __iter__(self):
         return (mol.copy() for mol in self.mols)
@@ -368,7 +375,7 @@ class Molecules:
                 proton_shifts = json.load(f)
         except json.JSONDecodeError:
             logger.error(f"Error decoding JSON files in {directory}")
-            return False
+            return False, []
         
         # Map molecules to their InChI keys
         mol_inchi_map = {}
@@ -385,9 +392,7 @@ class Molecules:
         
         if missing_mols:
             logger.warning(f"Missing shifts for molecules: {', '.join(missing_mols)}")
-            if len(missing_mols) == len(self.mols):
-                logger.error("No shifts found for any molecules")
-                return False
+            return False, missing_mols
         
         # apply shifts to molecules
         shifts_loaded = False
@@ -428,10 +433,10 @@ class Molecules:
         
         if shifts_loaded:
             logger.info("Successfully loaded NMR shifts from JSON files")
-            return True
+            return True, []
         else:
             logger.warning("No shifts were loaded")
-            return False
+            return False, []
 
     def assign_nmr_spectra(self, nmrdata):
         for mol in self.mols:

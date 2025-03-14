@@ -62,8 +62,7 @@ def runner(config):
         shifts_loaded = False
         try:
             logger.info("Attempting to load NMR shifts from cache")
-            data.load_nmr_shifts()
-            shifts_loaded = True
+            shifts_loaded, missing_mols = data.load_nmr_shifts()
         except Exception as e:
             logger.error(f"Error loading NMR shifts from cache: {e}")
 

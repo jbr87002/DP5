@@ -181,7 +181,8 @@ def run_workflow(
         config["stereocentres"],
         config["workflow"],
         config["nn_model"],
-        ignore_sanitise_error=config["workflow"]["calculate_nmr_shifts"]
+        ignore_sanitise_error=config["workflow"]["calculate_nmr_shifts"],
+        output_folder=config["output_folder"]
     )
 
     logger.info(f"Final structure input files:{config['structure']}")

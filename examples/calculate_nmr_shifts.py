@@ -34,7 +34,6 @@ def main():
         output_path=output_dir,
         input_type="smiles",
         workflow="N",  # Just calculate NMR shifts
-        save_checkpoints=False,  # Save checkpoints
         skip_nmr=True,  # Skip NMR processing
         model='sgnn'
     )
