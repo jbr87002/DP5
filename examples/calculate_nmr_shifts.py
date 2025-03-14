@@ -15,7 +15,7 @@ from dp5.load_config import run_workflow
 
 def main():
     # Example SMILES strings
-    smiles_file = "/scratch/jbr46/np_atlas_nmr/np_atlas.smi"
+    smiles_file = "/scratch/jbr46/np_atlas_nmr/np_atlas_1000.smi"
     
     # Create the file if it doesn't exist
     if not os.path.exists(smiles_file):

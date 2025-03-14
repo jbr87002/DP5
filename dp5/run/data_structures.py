@@ -289,58 +289,6 @@ class Molecules:
         if self.config.get("save_checkpoints", False):
             self.save(Path(self.config["output_folder"]) / "molecules_after_nn_nmr.pkl")
             
-    def save_nmr_shifts(self, directory=None):
-        """Save NMR shifts to JSON files.
-        
-        Args:
-            directory: Directory to save the JSON files. If None, uses the output folder from config.
-        """
-        if directory is None:
-            directory = Path(self.config["output_folder"])
-        else:
-            directory = Path(directory)
-            
-        directory.mkdir(parents=True, exist_ok=True)
-        
-        # Create dictionaries for carbon and proton shifts
-        carbon_shifts = {}
-        proton_shifts = {}
-        
-        for mol in self.mols:
-            # Get SMILES
-            mol_without_hs = Chem.RemoveHs(mol._mol)
-            smiles = Chem.MolToSmiles(mol_without_hs)
-            
-            # Get InChI key as the identifier
-            inchi_key = Chem.MolToInchiKey(mol_without_hs)
-            
-            # Process carbon shifts
-            if hasattr(mol, 'C_shifts') and hasattr(mol, 'C_labels'):
-                carbon_data = {
-                    'name': mol.base_name,  # Include original name for reference
-                    'smiles': smiles,
-                    'shifts': {int(atom_idx[1:])-1: round(float(shift), 2) for atom_idx, shift in zip(mol.C_labels, mol.C_shifts)}
-                }
-                carbon_shifts[inchi_key] = carbon_data
-            
-            # Process proton shifts
-            if hasattr(mol, 'H_shifts') and hasattr(mol, 'H_labels'):
-                proton_data = {
-                    'name': mol.base_name,  # Include original name for reference
-                    'smiles': smiles,
-                    'shifts': {int(atom_idx[1:])-1: round(float(shift), 2) for atom_idx, shift in zip(mol.H_labels, mol.H_shifts)}
-                }
-                proton_shifts[inchi_key] = proton_data
-        
-        # Save to JSON files
-        if carbon_shifts:
-            with open(directory / "carbon_shifts.json", 'w') as f:
-                json.dump(carbon_shifts, f, indent=2)
-        
-        if proton_shifts:
-            with open(directory / "proton_shifts.json", 'w') as f:
-                json.dump(proton_shifts, f, indent=2)
-                
     def load_nmr_shifts(self, directory=None):
         """Load NMR shifts from JSON files.
         
@@ -364,7 +312,7 @@ class Molecules:
         # Check if files exist
         if not carbon_file.exists() or not proton_file.exists():
             logger.warning(f"NMR shift JSON files not found in {directory}")
-            return False
+            return False, []
         
         # Load the JSON files
         try:
@@ -490,3 +438,232 @@ class Molecules:
             dp5_output = output + self.dp5_output
             with open((self.config["output_folder"]) / "output.dp5", "w") as f:
                 f.write(dp5_output)
+
+    def save_nmr_shifts_sdf(self, directory=None):
+        """Save NMR shifts to SDF files, including molecular structure and properties.
+        
+        Args:
+            directory: Directory to save the SDF files. If None, uses the output folder from config.
+            
+        Returns:
+            str: Path to the saved SDF file.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        if directory is None:
+            directory = Path(self.config["output_folder"])
+        else:
+            directory = Path(directory)
+            
+        directory.mkdir(parents=True, exist_ok=True)
+        
+        # Create SDF file path
+        sdf_file = directory / "nmr_shifts.sdf"
+        
+        # Create SDF writer
+        writer = Chem.SDWriter(str(sdf_file))
+        
+        # Process each molecule
+        logger.info(f"Saving NMR shifts for {len(self.mols)} molecules to SDF")
+        
+        try:
+            mol_iterator = tqdm(self.mols, desc="Saving molecules to SDF", unit="molecule")
+        except NameError:
+            mol_iterator = self.mols
+            
+        for mol in mol_iterator:
+            # Get a copy of the molecule to add properties to
+            rdkit_mol = Chem.Mol(mol._mol)
+            
+            # Add molecule name as a property
+            rdkit_mol.SetProp("_Name", mol.base_name)
+            
+            # Add InChI key as a property
+            mol_without_hs = Chem.RemoveHs(mol._mol)
+            inchi_key = Chem.MolToInchiKey(mol_without_hs)
+            rdkit_mol.SetProp("INCHIKEY", inchi_key)
+            
+            # Add SMILES as a property
+            smiles = Chem.MolToSmiles(mol_without_hs)
+            rdkit_mol.SetProp("SMILES", smiles)
+            
+            # Add carbon shifts if available
+            if hasattr(mol, 'C_shifts') and hasattr(mol, 'C_labels'):
+                # Add each carbon shift as a separate property
+                for atom_idx, (label, shift) in enumerate(zip(mol.C_labels, mol.C_shifts)):
+                    atom_num = int(label[1:]) - 1  # Convert C1 to atom index 0
+                    rdkit_mol.SetProp(f"C_SHIFT_{atom_num}", f"{shift:.2f}")
+                
+                # Also add as a single JSON property for easier parsing
+                carbon_shifts_json = json.dumps({
+                    int(label[1:])-1: round(float(shift), 2) 
+                    for label, shift in zip(mol.C_labels, mol.C_shifts)
+                })
+                rdkit_mol.SetProp("CARBON_SHIFTS_JSON", carbon_shifts_json)
+            
+            # Add proton shifts if available
+            if hasattr(mol, 'H_shifts') and hasattr(mol, 'H_labels'):
+                # Add each proton shift as a separate property
+                for atom_idx, (label, shift) in enumerate(zip(mol.H_labels, mol.H_shifts)):
+                    atom_num = int(label[1:]) - 1  # Convert H1 to atom index 0
+                    rdkit_mol.SetProp(f"H_SHIFT_{atom_num}", f"{shift:.2f}")
+                
+                # Also add as a single JSON property for easier parsing
+                proton_shifts_json = json.dumps({
+                    int(label[1:])-1: round(float(shift), 2) 
+                    for label, shift in zip(mol.H_labels, mol.H_shifts)
+                })
+                rdkit_mol.SetProp("PROTON_SHIFTS_JSON", proton_shifts_json)
+            
+            # Write the molecule to the SDF file
+            writer.write(rdkit_mol)
+        
+        # Close the writer
+        writer.close()
+        
+        logger.info(f"NMR shifts saved to SDF file: {sdf_file}")
+        return str(sdf_file)
+        
+    def load_nmr_shifts_sdf(self, sdf_file=None):
+        """Load NMR shifts from an SDF file.
+        
+        Args:
+            sdf_file: Path to the SDF file. If None, uses the default path in the output folder.
+            
+        Returns:
+            tuple: (bool, list) - Success flag and list of molecules with missing shifts.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        if sdf_file is None:
+            sdf_file = Path(self.config["output_folder"]) / "nmr_shifts.sdf"
+        else:
+            sdf_file = Path(sdf_file)
+        
+        # Check if file exists
+        if not sdf_file.exists():
+            logger.warning(f"NMR shift SDF file not found: {sdf_file}")
+            return False, []
+        
+        # Create a dictionary to map InChI keys to shift data
+        shifts_data = {}
+        
+        # Read the SDF file
+        try:
+            logger.info(f"Reading NMR shifts from SDF file: {sdf_file}")
+            sdf_supplier = Chem.SDMolSupplier(str(sdf_file))
+            
+            for sdf_mol in sdf_supplier:
+                if sdf_mol is None:
+                    continue
+                
+                # Get InChI key
+                if sdf_mol.HasProp("INCHIKEY"):
+                    inchi_key = sdf_mol.GetProp("INCHIKEY")
+                else:
+                    # Generate InChI key if not present
+                    inchi_key = Chem.MolToInchiKey(sdf_mol)
+                
+                # Get carbon shifts
+                carbon_shifts = {}
+                if sdf_mol.HasProp("CARBON_SHIFTS_JSON"):
+                    carbon_shifts = json.loads(sdf_mol.GetProp("CARBON_SHIFTS_JSON"))
+                else:
+                    # Try to get individual carbon shift properties
+                    for prop_name in sdf_mol.GetPropNames():
+                        if prop_name.startswith("C_SHIFT_"):
+                            atom_idx = int(prop_name.split("_")[-1])
+                            carbon_shifts[atom_idx] = float(sdf_mol.GetProp(prop_name))
+                
+                # Get proton shifts
+                proton_shifts = {}
+                if sdf_mol.HasProp("PROTON_SHIFTS_JSON"):
+                    proton_shifts = json.loads(sdf_mol.GetProp("PROTON_SHIFTS_JSON"))
+                else:
+                    # Try to get individual proton shift properties
+                    for prop_name in sdf_mol.GetPropNames():
+                        if prop_name.startswith("H_SHIFT_"):
+                            atom_idx = int(prop_name.split("_")[-1])
+                            proton_shifts[atom_idx] = float(sdf_mol.GetProp(prop_name))
+                
+                # Store the data
+                shifts_data[inchi_key] = {
+                    "carbon_shifts": carbon_shifts,
+                    "proton_shifts": proton_shifts
+                }
+            
+        except Exception as e:
+            logger.error(f"Error reading SDF file: {e}")
+            return False, []
+        
+        # Map molecules to their InChI keys
+        mol_inchi_map = {}
+        for mol in self.mols:
+            mol_without_hs = Chem.RemoveHs(mol._mol)
+            inchi_key = Chem.MolToInchiKey(mol_without_hs)
+            mol_inchi_map[inchi_key] = mol
+        
+        # Check if we have shifts for all molecules
+        missing_mols = []
+        for inchi_key, mol in mol_inchi_map.items():
+            if inchi_key not in shifts_data:
+                missing_mols.append(mol.base_name)
+        
+        if missing_mols:
+            logger.warning(f"Missing shifts for {len(missing_mols)}/{len(self.mols)} molecules")
+            if len(missing_mols) == len(self.mols):
+                logger.error("No shifts found for any molecules")
+                return False, missing_mols
+        
+        # Apply shifts to molecules
+        shifts_loaded = False
+        
+        try:
+            mol_iterator = tqdm(mol_inchi_map.items(), desc="Loading NMR shifts from SDF", unit="molecule")
+        except NameError:
+            mol_iterator = mol_inchi_map.items()
+            
+        for inchi_key, mol in mol_iterator:
+            if inchi_key in shifts_data:
+                # Process carbon shifts
+                carbon_shifts = shifts_data[inchi_key]["carbon_shifts"]
+                if carbon_shifts:
+                    c_shifts = []
+                    c_labels = []
+                    
+                    # Sort by atom index to ensure correct order
+                    for atom_idx in sorted([int(idx) for idx in carbon_shifts.keys()]):
+                        c_labels.append(f"C{atom_idx+1}")
+                        c_shifts.append(float(carbon_shifts[str(atom_idx)]))
+                    
+                    # Create conformer predictions (assuming single conformer for loaded shifts)
+                    mol.C_labels = np.array(c_labels)
+                    mol.conformer_C_pred = np.array([c_shifts])
+                    
+                    shifts_loaded = True
+                
+                # Process proton shifts
+                proton_shifts = shifts_data[inchi_key]["proton_shifts"]
+                if proton_shifts:
+                    h_shifts = []
+                    h_labels = []
+                    
+                    # Sort by atom index to ensure correct order
+                    for atom_idx in sorted([int(idx) for idx in proton_shifts.keys()]):
+                        h_labels.append(f"H{atom_idx+1}")
+                        h_shifts.append(float(proton_shifts[str(atom_idx)]))
+                    
+                    # Create conformer predictions (assuming single conformer for loaded shifts)
+                    mol.H_labels = np.array(h_labels)
+                    mol.conformer_H_pred = np.array([h_shifts])
+                    
+                    shifts_loaded = True
+        
+        if shifts_loaded:
+            logger.info("Successfully loaded NMR shifts from SDF file")
+            return True, []
+        else:
+            logger.warning("No shifts were loaded from SDF file")
+            return False, missing_mols

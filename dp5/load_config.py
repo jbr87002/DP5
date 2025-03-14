@@ -37,8 +37,6 @@ def run_workflow(
     stereocentres=None, 
     model=None, 
     remove_previous=False, 
-    save_checkpoints=False,
-    load_checkpoint=None,
     skip_nmr=False,
     shifts_from_cache=False,
 ):
@@ -192,11 +190,6 @@ def run_workflow(
 
     # Create output directory if it doesn't exist
     config["output_folder"].mkdir(parents=True, exist_ok=True)
-    
-    # Add checkpoint configuration
-    config["save_checkpoints"] = save_checkpoints
-    if load_checkpoint:
-        config["load_checkpoint"] = load_checkpoint
     
     with open(config["output_folder"] / "config.json", "w") as f:
         cfg = config.copy()
