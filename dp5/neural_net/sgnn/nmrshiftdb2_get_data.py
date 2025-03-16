@@ -16,8 +16,7 @@ sys.path.append('/scratch/jbr46/NP/nmr-ase')
 molsuppl = Chem.SDMolSupplier('/scratch/jbr46/SGNN_source/data/nmrshiftdb2withsignals.sd', removeHs = False)
 
 atom_list = ['H','C','N','O','F','Si','P','S','Cl','Br', 'I']
-combined_atom_list = atom_list + atom_list_extension
-atom_set = set(combined_atom_list)
+atom_set = set(atom_list)
 charge_list = [1, 2, 3, -1, -2, -3, 0]
 degree_list = [1, 2, 3, 4, 5, 6, 0]
 valence_list = [1, 2, 3, 4, 5, 6, 0]
