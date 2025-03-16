@@ -30,7 +30,7 @@ restart_dft = false
 
 mm_complete = false
 dft_complete = false
-shifts_from_cache = false
+save_shifts = false
 
 [conformer_search]
 method = "macromodel" # accepts "macromodel", "tinker", "etkdg"
