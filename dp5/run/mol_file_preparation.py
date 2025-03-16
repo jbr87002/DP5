@@ -6,7 +6,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem, EnumerateStereoisomers
 from tqdm import tqdm
 from dp5.run.utils import build_sdf_index, get_inchi_key
-
+from dp5.neural_net.sgnn.nmrshiftdb2_get_data import check_allowed_atoms
 
 logger = logging.getLogger(__name__)
 
@@ -265,7 +265,7 @@ def prepare_inputs(
                 # If molecule is in precalculated SDF, use it as is
                 mols2.append([mol])
             else:
-                # Otherwise, try to clean it up
+                # try to clean it up
                 cleaned_mol = cleanup_3d(mol, ignore_sanitise_error=ignore_sanitise_error)
                 if cleaned_mol is not None:
                     mols2.append([cleaned_mol])
@@ -273,7 +273,14 @@ def prepare_inputs(
                     # Skip this molecule if cleanup failed
                     logger.warning("Skipping molecule due to sanitization error")
     else:
-        mols2 = [[mol] for mol in mols]
+        mols2 = []
+        # check if it contains only atoms suitable for the SGNN model
+        for mol in mols:
+            if not check_allowed_atoms(mol):
+                logger.warning(f"Molecule contains atoms unsuitable for the SGNN model: {mol.GetProp('_Name')}")
+                continue
+            else:
+                mols2.append([mol])
 
     logger.debug("Preparing to write structure files")
     filenames = []
