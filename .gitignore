@@ -19,4 +19,9 @@ test
 *.sdf
 *.mae
 *.com
+**/data_dic.p
+dp4/
+*.dp5
+*.dp4
+config.json
 examples/nmr_shifts_output/
