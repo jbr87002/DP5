@@ -67,7 +67,7 @@ class SmilesPreprocessor(object):
         self.atom_tokenizer.train = train
         self.bond_tokenizer.train = train
 
-        for smiles in tqdm(smiles_iterator):
+        for smiles in tqdm(smiles_iterator, unit="mol"):
             yield self.construct_feature_matrices(smiles)
 
 
@@ -209,7 +209,7 @@ class ConnectivityAPreprocessor(object):
         self.atom_tokenizer.train = train
         self.bond_tokenizer.train = train
 
-        for smiles in tqdm(smiles_iterator):
+        for smiles in tqdm(smiles_iterator, unit="mol"):
             yield self.construct_feature_matrices(smiles)
 
 
