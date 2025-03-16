@@ -247,6 +247,7 @@ def prepare_inputs(
     logger.info(f"Structures read successfully")
 
     mols2 = []
+    final_precalculated = []
     mutable_atoms = stereocentres if len(input_files) == 1 else []
 
     if workflow["generate"]:
@@ -265,27 +266,29 @@ def prepare_inputs(
             if precalc:
                 # If molecule is in precalculated SDF, use it as is
                 mols2.append([mol])
+                final_precalculated.append(True)
             else:
                 # try to clean it up
                 cleaned_mol = cleanup_3d(mol, ignore_sanitise_error=ignore_sanitise_error)
                 if cleaned_mol is not None:
                     mols2.append([cleaned_mol])
+                    final_precalculated.append(False)
                 else:
                     # Skip this molecule if cleanup failed
                     logger.warning("Skipping molecule due to sanitization error")
     else:
         mols2 = []
         # check if it contains only atoms suitable for the SGNN model
-        for mol in mols:
+        for mol, precalc in zip(mols, precalculated):
             if not check_allowed_atoms(mol):
                 logger.warning(f"Molecule contains atoms unsuitable for the SGNN model: {mol.GetProp('_Name')}")
                 continue
             else:
                 mols2.append([mol])
-
+                final_precalculated.append(precalc)
     logger.debug("Preparing to write structure files")
     filenames = []
-    for filename, mol, precalc in tqdm(zip(input_files, mols2, precalculated), desc="Writing structure files", total=len(input_files)):
+    for filename, mol, precalc in tqdm(zip(input_files, mols2, final_precalculated), desc="Writing structure files", total=len(input_files)):
         for i, isomer in enumerate(mol, start=1):
             if precalc:
                 # if name is not provided, use InChI key, else use NPA number (name is NPA number)
