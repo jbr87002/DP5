@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from dp5.load_config import run_workflow
 
 def main():
-    smiles_file = "/scratch/jbr46/np_atlas_nmr/np_atlas.smi"
+    smiles_file = "/scratch/jbr46/np_atlas_nmr/np_atlas_1000.smi"
     
     output_dir = "/scratch/jbr46/np_atlas_nmr"
     # precalculated_sdf = "/scratch/jbr46/np_atlas_nmr/nmr_shifts.sdf"

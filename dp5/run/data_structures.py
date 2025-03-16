@@ -8,7 +8,7 @@ from dp5.dft.run_dft import dft_calculations
 from dp5.neural_net.nn_utils import get_nn_shifts
 from dp5.analysis.dp5 import DP5
 from dp5.analysis.dp4 import DP4
-from dp5.run.utils import build_sdf_index, get_inchi_key
+from dp5.run.utils import build_sdf_index, get_inchi_key, get_sdf_indices
 
 from tqdm import tqdm
 import pickle
@@ -425,6 +425,7 @@ class Molecules:
         writer.close()
         
         logger.info(f"NMR shifts saved to SDF file: {sdf_file}")
+        inchi_key_index, npa_index = build_sdf_index(sdf_file)
         return str(sdf_file)
 
     def has_precalculated_shifts(self, mol):
@@ -467,7 +468,7 @@ class Molecules_precalculated(Molecules):
         
         if precalculated_sdf and precalculated_sdf.get("path"):
             sdf_path = precalculated_sdf["path"]
-            self.inchi_key_index, self.npa_index, self.sdf_supplier = build_sdf_index(sdf_path)
+            self.inchi_key_index, self.npa_index, self.sdf_supplier = get_sdf_indices(sdf_path)
         
         mols_list_iterator = tqdm(self.config["structure"], desc="Loading molecules", total=len(self.config["structure"]))
         

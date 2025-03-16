@@ -11,9 +11,9 @@ from dp5.load_config import run_workflow
 from rdkit import Chem
 
 nmr_file = "/scratch/jbr46/np_atlas_nmr/NMR_example"
-precalculated_sdf = "/scratch/jbr46/np_atlas_nmr/nmr_shifts.sdf"
+precalculated_sdf = "/scratch/jbr46/np_atlas_nmr/nmr_shifts_sgnn.sdf"
 data = run_workflow(
-    structure_files=['/scratch/jbr46/np_atlas_nmr/np_atlas_1000_10.smi'],
+    structure_files=['/scratch/jbr46/np_atlas_nmr/np_atlas_1000.smi'],
     nmr_files=[nmr_file],
     input_type='smiles',
     workflow='s',  # DP4 analysis

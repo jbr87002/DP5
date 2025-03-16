@@ -1,11 +1,12 @@
 from pathlib import Path
 import logging
 from typing import List, Union, Dict
+import json
 
 from rdkit import Chem
 from rdkit.Chem import AllChem, EnumerateStereoisomers
 from tqdm import tqdm
-from dp5.run.utils import build_sdf_index, get_inchi_key
+from dp5.run.utils import get_sdf_indices, get_inchi_key
 from dp5.neural_net.sgnn.nmrshiftdb2_get_data import check_allowed_atoms
 
 logger = logging.getLogger(__name__)
@@ -313,8 +314,7 @@ def check_mols_in_sdf(mols, precalculated_sdf):
     """
     logger = logging.getLogger(__name__)
     
-    # Build indices of InChI keys and NPA numbers in the SDF file
-    inchi_key_index, npa_index, _ = build_sdf_index(precalculated_sdf)
+    inchi_key_index, npa_index, _ = get_sdf_indices(precalculated_sdf)
     
     if not inchi_key_index and not npa_index:
         # If no indices were built, return all False
