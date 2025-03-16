@@ -1,5 +1,0 @@
-CCCCCC(=O)N[C@@H]([C@@H](C)O)C(=O)N[C@H]1[C@H](OC(=O)[C@@H](NC(=O)[C@@H](N(C(=O)[C@@H](N2[C@@H](CC[C@@H](C2=O)NC(=O)[C@@H](NC1=O)CCC(=O)N)O)CC3=CC=CC=C3)C)CC4=CC=C(C=C4)O)[C@@H](C)CC)C
-C/C(=C\CC1=C(C=C2C(=C1O)CN(C2=O)CCO)O)/CCC(=O)OC
-CC1=CC(=O)C2=C(C=C3C=C(C(=C(C3=C2O1)OC)C4=C(C5=C(C6=C(C=C(C=C64)OC)OC)OC(=CC5=O)C)O)OC)O
-CCC(C)CC(C)CC(C)C(C(C)/C=C(\C)/C(C(C)/C=C(\C)/C(C(C)C(=O)O)O)O)O[C@H]1[C@H]([C@H]([C@@H]([C@H](O1)CO)O)O)O
-C/C=C/C=C/C1=CC(=O)C2=C(O1)O[C@@]3(CC[C@@]4([C@@]([C@H]3[C@H]2O)(CCC(=O)C4(C)C)C)O)C

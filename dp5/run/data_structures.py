@@ -8,10 +8,12 @@ from dp5.dft.run_dft import dft_calculations
 from dp5.neural_net.nn_utils import get_nn_shifts
 from dp5.analysis.dp5 import DP5
 from dp5.analysis.dp4 import DP4
+from dp5.run.utils import build_sdf_index, get_inchi_key
 
 from tqdm import tqdm
 import pickle
 import json
+import logging
 from pathlib import Path
 
 
@@ -131,6 +133,16 @@ class Molecule:
     @shielding_labels.setter
     def shielding_labels(self, labels):
         self._shielding_labels = np.array(labels)
+
+    @property
+    def conformer_H_pred(self):
+        return self._conformer_H_pred
+
+    @conformer_H_pred.setter
+    def conformer_H_pred(self, values):
+        if not isinstance(values, np.ndarray):
+            values = np.array(values)
+        self._conformer_H_pred = values
 
     def add_conformer_data(self, data):
         self.atoms = data.atoms
@@ -261,10 +273,6 @@ class Molecules:
         for mol, data in zip(self.mols, mm_data):
             mol.add_conformer_data(data)
         
-        # Save checkpoint after conformer search
-        if self.config.get("save_checkpoints", False):
-            self.save(Path(self.config["output_folder"]) / "molecules_after_conformers.pkl")
-
     def get_dft_data(self):
         """Runs DFT calculations"""
         dft_mols = [mol for mol in self.mols]
@@ -274,21 +282,41 @@ class Molecules:
         for mol, data in zip(self.mols, dft_data):
             mol.add_dft_data(data)
             
-        # Save checkpoint after DFT calculations
-        if self.config.get("save_checkpoints", False):
-            self.save(Path(self.config["output_folder"]) / "molecules_after_dft.pkl")
-
     def get_nn_nmr_shifts(self):
-        """Should get C and H shifts"""
-        mols = [mol.rdkit_mols for mol in self.mols]
-        cascade_shifts_labels = get_nn_shifts(mols, model=self.config["nn_model"]["model"], n_forward_pass=self.config["nn_model"]["n_forward_pass"])
-        for mol, *m_shift_label in zip(self.mols, *cascade_shifts_labels):
-            mol.add_nn_shifts(m_shift_label)
-            
-        # Save checkpoint after NN NMR shifts
-        if self.config.get("save_checkpoints", False):
-            self.save(Path(self.config["output_folder"]) / "molecules_after_nn_nmr.pkl")
-            
+        """
+        Get NMR shifts for molecules that don't already have pre-calculated shifts.
+        
+        This method overrides the parent class method to avoid regenerating shifts
+        for molecules that already have pre-calculated shifts.
+        """
+        logger = logging.getLogger(__name__)
+        
+        # Check which molecules need shifts generated
+        mols_needing_shifts = []
+        indices_needing_shifts = []
+        
+        for i, mol in enumerate(self.mols):
+            if not self.has_precalculated_shifts(mol):
+                mols_needing_shifts.append(mol.rdkit_mols)
+                indices_needing_shifts.append(i)
+        
+        if not mols_needing_shifts:
+            logger.info("All molecules have pre-calculated shifts, skipping shift generation")
+            return
+        
+        logger.info(f"Generating shifts for {len(mols_needing_shifts)} molecules without pre-calculated data")
+        
+        # Generate shifts only for molecules that need them
+        cascade_shifts_labels = get_nn_shifts(
+            mols_needing_shifts, 
+            model=self.config["nn_model"]["model"], 
+            n_forward_pass=self.config["nn_model"]["n_forward_pass"]
+        )
+        
+        # Assign the generated shifts to the appropriate molecules
+        for idx, *m_shift_label in zip(indices_needing_shifts, *cascade_shifts_labels):
+            self.mols[idx].add_nn_shifts(m_shift_label)
+        
     def assign_nmr_spectra(self, nmrdata):
         for mol in self.mols:
             C_exp, H_exp = nmrdata.assign(mol)
@@ -351,7 +379,6 @@ class Molecules:
         Returns:
             str: Path to the saved SDF file.
         """
-        import logging
         logger = logging.getLogger(__name__)
         
         if directory is None:
@@ -361,212 +388,205 @@ class Molecules:
             
         directory.mkdir(parents=True, exist_ok=True)
         
-        # Create SDF file path
         sdf_file = directory / "nmr_shifts.sdf"
         
-        # Create SDF writer
         writer = Chem.SDWriter(str(sdf_file))
         
-        # Process each molecule
         logger.info(f"Saving NMR shifts for {len(self.mols)} molecules to SDF")
         
-        try:
-            mol_iterator = tqdm(self.mols, desc="Saving molecules to SDF", unit="molecule")
-        except NameError:
-            mol_iterator = self.mols
-            
-        for mol in mol_iterator:
-            # Get a copy of the molecule to add properties to
+        for mol in self.mols:
             rdkit_mol = Chem.Mol(mol._mol)
             
-            # Add molecule name as a property
             rdkit_mol.SetProp("_Name", mol.base_name)
             
-            # Add InChI key as a property
             mol_without_hs = Chem.RemoveHs(mol._mol)
             inchi_key = Chem.MolToInchiKey(mol_without_hs)
             rdkit_mol.SetProp("INCHIKEY", inchi_key)
             
-            # Add SMILES as a property
             smiles = Chem.MolToSmiles(mol_without_hs)
             rdkit_mol.SetProp("SMILES", smiles)
-            
-            # Add carbon shifts if available
+
             if hasattr(mol, 'C_shifts') and hasattr(mol, 'C_labels'):
-                # Add each carbon shift as a separate property
-                for atom_idx, (label, shift) in enumerate(zip(mol.C_labels, mol.C_shifts)):
-                    atom_num = int(label[1:]) - 1  # Convert C1 to atom index 0
-                    rdkit_mol.SetProp(f"C_SHIFT_{atom_num}", f"{shift:.2f}")
-                
-                # Also add as a single JSON property for easier parsing
                 carbon_shifts_json = json.dumps({
                     int(label[1:])-1: round(float(shift), 2) 
                     for label, shift in zip(mol.C_labels, mol.C_shifts)
                 })
                 rdkit_mol.SetProp("CARBON_SHIFTS_JSON", carbon_shifts_json)
             
-            # Add proton shifts if available
             if hasattr(mol, 'H_shifts') and hasattr(mol, 'H_labels'):
-                # Add each proton shift as a separate property
-                for atom_idx, (label, shift) in enumerate(zip(mol.H_labels, mol.H_shifts)):
-                    atom_num = int(label[1:]) - 1  # Convert H1 to atom index 0
-                    rdkit_mol.SetProp(f"H_SHIFT_{atom_num}", f"{shift:.2f}")
-                
-                # Also add as a single JSON property for easier parsing
                 proton_shifts_json = json.dumps({
                     int(label[1:])-1: round(float(shift), 2) 
                     for label, shift in zip(mol.H_labels, mol.H_shifts)
                 })
                 rdkit_mol.SetProp("PROTON_SHIFTS_JSON", proton_shifts_json)
             
-            # Write the molecule to the SDF file
             writer.write(rdkit_mol)
         
-        # Close the writer
         writer.close()
         
         logger.info(f"NMR shifts saved to SDF file: {sdf_file}")
         return str(sdf_file)
-        
-    def load_nmr_shifts_sdf(self, sdf_file=None):
-        """Load NMR shifts from an SDF file.
+
+    def has_precalculated_shifts(self, mol):
+        """
+        Check if a molecule has pre-calculated NMR shifts.
         
         Args:
-            sdf_file: Path to the SDF file. If None, uses the default path in the output folder.
+            mol: Molecule object to check
             
         Returns:
-            tuple: (bool, list) - Success flag and list of molecules with missing shifts.
+            bool: True if the molecule has pre-calculated shifts, False otherwise
         """
-        import logging
+        return (hasattr(mol, 'conformer_C_pred') and hasattr(mol, 'C_labels') and 
+                len(getattr(mol, 'conformer_C_pred', [])) > 0)
+
+
+class Molecules_precalculated(Molecules):
+    """
+    Class that handles molecules with pre-calculated NMR shifts.
+    
+    This class can load molecules either from SDF files or directly from a pre-calculated SDF file
+    using InChI keys or NPA identifiers as identifiers.
+    """
+    def __init__(self, config):
+        """
+        Initialize the Molecules_precalculated object.
+        
+        Args:
+            config: Configuration dictionary containing structure files and other settings
+        """
+        self.config = config
+        
+        precalculated_sdf = config.get("precalculated_sdf")
+        
         logger = logging.getLogger(__name__)
         
-        if sdf_file is None:
-            sdf_file = Path(self.config["output_folder"]) / "nmr_shifts.sdf"
+        self.inchi_key_index = {}
+        self.npa_index = {}
+        self.sdf_supplier = None
+        
+        if precalculated_sdf and precalculated_sdf.get("path"):
+            sdf_path = precalculated_sdf["path"]
+            self.inchi_key_index, self.npa_index, self.sdf_supplier = build_sdf_index(sdf_path)
+        
+        mols_list_iterator = tqdm(self.config["structure"], desc="Loading molecules", total=len(self.config["structure"]))
+        
+        # Initialize molecules
+        self.mols = []
+        for mol in mols_list_iterator:
+            try:
+                self.mols.append(self._create_molecule(mol, config["output_folder"], 
+                                                      precalculated_sdf.get("path") if precalculated_sdf else None))
+            except ValueError as e:
+                logger.warning(f"Error loading molecule {mol}: {str(e)}")
+                logger.warning(f"Initializing as regular Molecule instead")
+                self.mols.append(Molecule(mol, config["output_folder"]))
+        
+        logger.info(f"Loaded {len(self.mols)} molecules")
+        
+        # Count molecules with pre-calculated shifts
+        precalc_count = sum(1 for mol in self.mols if self.has_precalculated_shifts(mol))
+        if precalc_count > 0:
+            logger.info(f"{precalc_count} molecules have pre-calculated NMR shifts")
         else:
-            sdf_file = Path(sdf_file)
+            logger.info("No molecules have pre-calculated NMR shifts")
+    
+    def _create_molecule(self, input_file, output_folder, precalculated_sdf):
+        """
+        Create a Molecule object with optimized SDF access.
         
-        # Check if file exists
-        if not sdf_file.exists():
-            logger.warning(f"NMR shift SDF file not found: {sdf_file}")
-            return False, []
-        
-        # Create a dictionary to map InChI keys to shift data
-        shifts_data = {}
-        
-        # Read the SDF file
-        try:
-            logger.info(f"Reading NMR shifts from SDF file: {sdf_file}")
-            sdf_supplier = Chem.SDMolSupplier(str(sdf_file))
+        Args:
+            input_file: Path to the molecule file or InChI key or NPA identifier
+            output_folder: Output folder for the molecule
+            precalculated_sdf: Path to the precalculated SDF file
             
-            for sdf_mol in sdf_supplier:
-                if sdf_mol is None:
-                    continue
-                
-                # Get InChI key
-                if sdf_mol.HasProp("INCHIKEY"):
-                    inchi_key = sdf_mol.GetProp("INCHIKEY")
-                else:
-                    # Generate InChI key if not present
-                    inchi_key = Chem.MolToInchiKey(sdf_mol)
-                
-                # Get carbon shifts
-                carbon_shifts = {}
-                if sdf_mol.HasProp("CARBON_SHIFTS_JSON"):
-                    carbon_shifts = json.loads(sdf_mol.GetProp("CARBON_SHIFTS_JSON"))
-                else:
-                    # Try to get individual carbon shift properties
-                    for prop_name in sdf_mol.GetPropNames():
-                        if prop_name.startswith("C_SHIFT_"):
-                            atom_idx = int(prop_name.split("_")[-1])
-                            carbon_shifts[atom_idx] = float(sdf_mol.GetProp(prop_name))
-                
-                # Get proton shifts
-                proton_shifts = {}
-                if sdf_mol.HasProp("PROTON_SHIFTS_JSON"):
-                    proton_shifts = json.loads(sdf_mol.GetProp("PROTON_SHIFTS_JSON"))
-                else:
-                    # Try to get individual proton shift properties
-                    for prop_name in sdf_mol.GetPropNames():
-                        if prop_name.startswith("H_SHIFT_"):
-                            atom_idx = int(prop_name.split("_")[-1])
-                            proton_shifts[atom_idx] = float(sdf_mol.GetProp(prop_name))
-                
-                # Store the data
-                shifts_data[inchi_key] = {
-                    "carbon_shifts": carbon_shifts,
-                    "proton_shifts": proton_shifts
-                }
+        Returns:
+            Molecule: The created molecule object
+        """
+        # Check if input_file is an SDF file or an identifier
+        if input_file.endswith('.sdf'):
+            # Initialize normally from SDF file
+            return Molecule(input_file, output_folder)
+        else:
+            # Check if input_file is an NPA identifier
+            is_npa = input_file.startswith('NPA') and any(c.isdigit() for c in input_file)
             
-        except Exception as e:
-            logger.error(f"Error reading SDF file: {e}")
-            return False, []
-        
-        # Map molecules to their InChI keys
-        mol_inchi_map = {}
-        for mol in self.mols:
-            mol_without_hs = Chem.RemoveHs(mol._mol)
-            inchi_key = Chem.MolToInchiKey(mol_without_hs)
-            mol_inchi_map[inchi_key] = mol
-        
-        # Check if we have shifts for all molecules
-        missing_mols = []
-        for inchi_key, mol in mol_inchi_map.items():
-            if inchi_key not in shifts_data:
-                missing_mols.append(mol.base_name)
-        
-        if missing_mols:
-            logger.warning(f"Missing shifts for {len(missing_mols)}/{len(self.mols)} molecules")
-            if len(missing_mols) == len(self.mols):
-                logger.error("No shifts found for any molecules")
-                return False, missing_mols
-        
-        # Apply shifts to molecules
-        shifts_loaded = False
-        
-        try:
-            mol_iterator = tqdm(mol_inchi_map.items(), desc="Loading NMR shifts from SDF", unit="molecule")
-        except NameError:
-            mol_iterator = mol_inchi_map.items()
+            if precalculated_sdf is None or self.sdf_supplier is None:
+                raise ValueError("precalculated_sdf must be provided when initializing from identifier")
             
-        for inchi_key, mol in mol_iterator:
-            if inchi_key in shifts_data:
-                # Process carbon shifts
-                carbon_shifts = shifts_data[inchi_key]["carbon_shifts"]
+            # Find the molecule with matching identifier in the precalculated SDF file
+            mol_idx = None
+            if is_npa and input_file in self.npa_index:
+                mol_idx = self.npa_index[input_file]
+            elif not is_npa and input_file in self.inchi_key_index:
+                mol_idx = self.inchi_key_index[input_file]
+            else:
+                raise ValueError(f"Molecule with identifier {input_file} not found in precalculated SDF file")
+            
+            # Get the molecule at the specified index
+            mol = self.sdf_supplier[mol_idx]
+            
+            if mol is None:
+                raise ValueError(f"Failed to load molecule with identifier {input_file} from precalculated SDF file")
+            
+            molecule = Molecule.__new__(Molecule)
+            molecule.input_file = input_file
+            molecule.output_folder = output_folder
+            if mol.HasProp("_Name"):
+                molecule.base_name = mol.GetProp("_Name")
+            else:
+                molecule.base_name = input_file
+            
+            molecule._mol = mol
+            molecule.atoms = [at.GetSymbol() for at in mol.GetAtoms()]
+            molecule.conformers = [mol.GetConformer(0).GetPositions()]
+            molecule.charge = sum([at.GetFormalCharge() for at in mol.GetAtoms()])
+            
+            if mol.HasProp("CARBON_SHIFTS_JSON") and mol.HasProp("PROTON_SHIFTS_JSON"):
+                carbon_shifts = json.loads(mol.GetProp("CARBON_SHIFTS_JSON"))
+                proton_shifts = json.loads(mol.GetProp("PROTON_SHIFTS_JSON"))
+                
                 if carbon_shifts:
                     c_shifts = []
                     c_labels = []
                     
-                    # Sort by atom index to ensure correct order
                     for atom_idx in sorted([int(idx) for idx in carbon_shifts.keys()]):
                         c_labels.append(f"C{atom_idx+1}")
                         c_shifts.append(float(carbon_shifts[str(atom_idx)]))
                     
-                    # Create conformer predictions (assuming single conformer for loaded shifts)
-                    mol.C_labels = np.array(c_labels)
-                    mol.conformer_C_pred = np.array([c_shifts])
-                    
-                    shifts_loaded = True
+                    # Create conformer predictions (assume single conformer for loaded shifts)
+                    molecule._C_labels = np.array(c_labels)
+                    molecule._conformer_C_pred = np.array([c_shifts])
+                else:
+                    molecule._C_labels = np.array([])
+                    molecule._conformer_C_pred = np.array([])
                 
-                # Process proton shifts
-                proton_shifts = shifts_data[inchi_key]["proton_shifts"]
                 if proton_shifts:
                     h_shifts = []
                     h_labels = []
                     
-                    # Sort by atom index to ensure correct order
                     for atom_idx in sorted([int(idx) for idx in proton_shifts.keys()]):
                         h_labels.append(f"H{atom_idx+1}")
                         h_shifts.append(float(proton_shifts[str(atom_idx)]))
                     
-                    # Create conformer predictions (assuming single conformer for loaded shifts)
-                    mol.H_labels = np.array(h_labels)
-                    mol.conformer_H_pred = np.array([h_shifts])
-                    
-                    shifts_loaded = True
-        
-        if shifts_loaded:
-            logger.info("Successfully loaded NMR shifts from SDF file")
-            return True, []
-        else:
-            logger.warning("No shifts were loaded from SDF file")
-            return False, missing_mols
+                    # Create conformer predictions (assume single conformer for loaded shifts)
+                    molecule._H_labels = np.array(h_labels)
+                    molecule._conformer_H_pred = np.array([h_shifts])
+                else:
+                    molecule._H_labels = np.array([])
+                    molecule._conformer_H_pred = np.array([])
+            
+            try:
+                prop = rdForceFieldHelpers.MMFFGetMoleculeProperties(mol, mmffVariant="MMFF94s")
+                ff = rdForceFieldHelpers.MMFFGetMoleculeForceField(mol, prop)
+                if ff is not None:
+                    molecule._energies = np.array([float(ff.CalcEnergy()) * 4.184])
+                else:
+                    molecule._energies = np.array([0.0])
+            except:
+                molecule._energies = np.array([0.0])
+            
+            molecule._rdkit_mols = None
+            molecule._populations = None
+            
+            return molecule

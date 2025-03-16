@@ -5,6 +5,7 @@ from typing import List, Union, Dict
 from rdkit import Chem
 from rdkit.Chem import AllChem, EnumerateStereoisomers
 from tqdm import tqdm
+from dp5.run.utils import build_sdf_index, get_inchi_key
 
 
 logger = logging.getLogger(__name__)
@@ -33,31 +34,34 @@ def cleanup_3d(mol, ignore_sanitise_error=False):
 
     arguments:
     - mol: RDKit mol object
+    - ignore_sanitise_error: If True, return None on error instead of raising an exception
 
     returns:
-    - a reasonable conformer
+    - a reasonable conformer, or None if there was an error and ignore_sanitise_error is True
     """
-    mol = AllChem.AddHs(mol, addCoords=True)
-    cid = AllChem.EmbedMolecule(
-        mol,
-        randomSeed=0,
-        forceTol=0.0135,
-    )
-    if cid == -1:
-        if ignore_sanitise_error:
-            logger.warning("Molecule could not be sanitised")
-        else:
-            raise ValueError("Molecule could not be sanitised")
     try:
+        mol = AllChem.AddHs(mol, addCoords=True)
+        cid = AllChem.EmbedMolecule(
+            mol,
+            randomSeed=0,
+            forceTol=0.0135,
+        )
+        if cid == -1:
+            if ignore_sanitise_error:
+                logger.warning("Molecule could not be sanitised")
+                return None
+            else:
+                raise ValueError("Molecule could not be sanitised")
+        
         AllChem.MMFFOptimizeMolecule(mol)
         Chem.rdmolops.AssignStereochemistryFrom3D(mol)
+        return mol
     except Exception as e:
         if ignore_sanitise_error:
             logger.warning(f"Error optimising molecule: {e}")
+            return None
         else:
             raise ValueError(f"Error optimising molecule: {e}")
-
-    return mol
 
 
 def read_sdf(input_file: str):
@@ -69,6 +73,20 @@ def read_sdf(input_file: str):
 
 
 def read_textfile(input_file: str, input_type: str):
+    """
+    Reads a text file containing SMILES, SMARTS, or InChI strings.
+
+    arguments:
+    - input_file: path to the text file
+    - input_type: type of input file. May be 'smiles', 'smarts', or 'inchi'
+
+    returns:
+    - mols: list of RDKit Mol objects
+
+    input file format:
+    name,smiles
+    If name is not provided, a name is generated automatically.
+    """
     input_type = input_type.lower()
 
     input_readers = {
@@ -87,8 +105,16 @@ def read_textfile(input_file: str, input_type: str):
             if line.strip() == "":
                 continue
             try:
-                mol = input_readers[input_type](line.strip(), sanitize=True)
+                parts = line.strip().split(",")
+                if len(parts) == 1:
+                    smiles = parts[0]
+                    name = None
+                else:
+                    name, smiles = parts[0], parts[1]
+                mol = input_readers[input_type](smiles, sanitize=True)
                 mol = Chem.AddHs(mol)
+                if name is not None:
+                    mol.SetProp("_Name", name)
                 mols.append(mol)
             except Exception as e:
                 # to make an logging.error
@@ -170,16 +196,23 @@ def _generate_diastereomers(
 
 
 def prepare_inputs(
-    input_files: List[str], input_type: str, stereocentres: List[int], workflow: Dict, nn_model: Dict, ignore_sanitise_error: bool = False, output_folder: str = None
+    input_files: List[str],
+    input_type: str,
+    stereocentres: List[int],
+    workflow: Dict,
+    nn_model: Dict, 
+    output_folder: str = None,
+    precalculated_sdf: str = None,
 ) -> List[str]:
     """
-    Reads files at the path specified by input config, prepares them as required by the user. Returns paths to the new files.
+    Reads files at the path specified by input config, prepares them as required. Returns paths to the new files.
 
     Arguments:
     - input_file (list[str]): list of relative paths to structure input files. Contains one text file of several SD Files.
     - input_type (str): format of the input file. May be 'sdf', 'smiles', 'inchi', and 'smarts'.
     - stereocentres (list[int]): specifies mutable stereocentres. Defaults to empty list
     - workflow (dict): dictionary of booleans specifying the workflow.
+    - precalculated_sdf (dict or None): dictionary with path to precalculated SDF file
 
     Returns:
     - mol_paths (list[str]): paths to the transformed files
@@ -197,12 +230,18 @@ def prepare_inputs(
         mols = read_textfile(input_files[0], input_type)
         logger.debug(f"read structures from {input_type} file")
         input_files = [
-            f"{input_type}_mol_{i:03}_.sdf"
-            for i, mol in enumerate(range(len(mols)), start=1)
+            f"{mol.GetProp('_Name')}.sdf" if mol.HasProp('_Name') else f"{input_type}_mol_{i:03}_.sdf"
+            for i, mol in enumerate(mols, start=1)
         ]
 
     if len(mols) < 1:
         raise ValueError("No molecules were provided!")
+    
+    # check whether each molecule is in the precalculated sdf file
+    if precalculated_sdf and precalculated_sdf.get("path"):
+        precalculated = check_mols_in_sdf(mols, precalculated_sdf["path"])
+    else:
+        precalculated = [False] * len(mols)
 
     logger.info(f"Structures read successfully")
 
@@ -213,23 +252,86 @@ def prepare_inputs(
         logger.info("Generating diastereomers")
         mols2 = [_generate_diastereomers(mol, mutable_atoms) for mol in mols]
     elif workflow["cleanup"] or (
-        not workflow["conf_search"] and not workflow["dft_opt"] and not workflow["shifts_from_cache"] and nn_model["model"] == "cascade"
+        not workflow["conf_search"] and not workflow["dft_opt"] and nn_model["model"] == "cascade"
     ):
-        mol_iterator = tqdm(mols, desc="Generating MMFF geometries", unit="molecule")
         logger.info("Generating MMFF geometries for inputs")
-        mols2 = [[cleanup_3d(mol, ignore_sanitise_error=ignore_sanitise_error)] for mol in mol_iterator]
+        # ignore sanitise error if just calculating NMR shifts
+        ignore_sanitise_error = workflow["save_shifts"]
+        mol_iterator = tqdm(zip(mols, precalculated), desc="Generating MMFF geometries", unit="molecule", total=len(mols))
+        
+        mols2 = []
+        for mol, precalc in mol_iterator:
+            if precalc:
+                # If molecule is in precalculated SDF, use it as is
+                mols2.append([mol])
+            else:
+                # Otherwise, try to clean it up
+                cleaned_mol = cleanup_3d(mol, ignore_sanitise_error=ignore_sanitise_error)
+                if cleaned_mol is not None:
+                    mols2.append([cleaned_mol])
+                else:
+                    # Skip this molecule if cleanup failed
+                    logger.warning("Skipping molecule due to sanitization error")
     else:
         mols2 = [[mol] for mol in mols]
 
     logger.debug("Preparing to write structure files")
     filenames = []
-    for filename, mol in tqdm(zip(input_files, mols2), desc="Writing structure files", total=len(input_files)):
+    for filename, mol, precalc in tqdm(zip(input_files, mols2, precalculated), desc="Writing structure files", total=len(input_files)):
         for i, isomer in enumerate(mol, start=1):
-            if len(mol) == 1:
-                fname = f"{filename[:-4]}.sdf"
+            if precalc:
+                # if name is not provided, use InChI key, else use NPA number (name is NPA number)
+                if isomer.HasProp("_Name"):
+                    name = isomer.GetProp("_Name")
+                    if name.startswith("NPA") and any(c.isdigit() for c in name):
+                        fname = name
+                    else:
+                        fname = Chem.MolToInchiKey(isomer)
+                else:
+                    fname = Chem.MolToInchiKey(isomer)
             else:
-                fname = f"{filename[:-4]}isomer{i:03}.sdf"
+                if len(mol) == 1:
+                    fname = f"{filename[:-4]}.sdf"
+                else:
+                    fname = f"{filename[:-4]}isomer{i:03}.sdf"
+                write_to_sdf(isomer, fname, output_folder)
             filenames.append(fname)
-            write_to_sdf(isomer, fname, output_folder)
 
     return filenames
+
+def check_mols_in_sdf(mols, precalculated_sdf):
+    """
+    Check whether each molecule is in the precalculated SDF file
+    returns a list of booleans
+    """
+    logger = logging.getLogger(__name__)
+    
+    # Build indices of InChI keys and NPA numbers in the SDF file
+    inchi_key_index, npa_index, _ = build_sdf_index(precalculated_sdf)
+    
+    if not inchi_key_index and not npa_index:
+        # If no indices were built, return all False
+        return [False] * len(mols)
+    
+    # Pre-compute InChI keys for all molecules at once to avoid redundant calculations
+    mol_inchi_keys = [get_inchi_key(mol) for mol in mols]
+    
+    # Check if each molecule is in the index by InChI key or NPA number
+    precalculated = []
+    for mol, inchi_key in zip(mols, mol_inchi_keys):
+        if inchi_key is not None and inchi_key in inchi_key_index:
+            precalculated.append(True)
+        elif mol.HasProp("_Name"):
+            name = mol.GetProp("_Name")
+            if name.startswith("NPA") and any(c.isdigit() for c in name) and name in npa_index:
+                precalculated.append(True)
+            else:
+                precalculated.append(False)
+        else:
+            precalculated.append(False)
+    
+    # Log how many molecules were found in the precalculated SDF
+    found_count = sum(1 for p in precalculated if p)
+    logger.info(f"Found {found_count} out of {len(mols)} molecules in precalculated SDF file")
+    
+    return precalculated

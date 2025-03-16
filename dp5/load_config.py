@@ -35,11 +35,8 @@ def run_workflow(
     input_type="smiles", 
     workflow=None, 
     stereocentres=None, 
-    model=None, 
+    model='cascade', 
     remove_previous=False, 
-    skip_nmr=False,
-    shifts_from_cache=False,
-    use_precalculated=False,
     precalculated_sdf=None
 ):
     """
@@ -54,9 +51,6 @@ def run_workflow(
         stereocentres: List of stereocentres to enumerate
         model: Neural network model to use
         remove_previous: Whether to remove previous output
-        skip_nmr: Whether to skip NMR processing
-        shifts_from_cache: Whether to load shifts from cache
-        use_precalculated: Whether to use pre-calculated data from SDF files
         precalculated_sdf: Path to pre-calculated SDF file (optional)
         
     Returns:
@@ -82,11 +76,10 @@ def run_workflow(
     logger.info("Preparing configuration")
     
     # Set up precalculated data options
-    config["workflow"]["use_precalculated"] = use_precalculated
     if precalculated_sdf:
-        config["precalculated_sdf"] = precalculated_sdf
+        config["precalculated_sdf"] = {"path": precalculated_sdf}
     else:
-        config["precalculated_sdf"] = None
+        config["precalculated_sdf"] = {"path": None}
     
     # Override workflow flag
     if workflow is not None:
@@ -99,21 +92,8 @@ def run_workflow(
         config["workflow"]["dp4"] = "s" in workflow
         config["workflow"]["dp5"] = "w" in workflow
         config["workflow"]["assign_only"] = "a" in workflow
-        config["workflow"]["calculate_nmr_shifts"] = "N" in workflow
+        config["workflow"]["save_shifts"] = "N" in workflow
 
-    # If using precalculated data, we can skip many steps
-    if use_precalculated:
-        logger.info("Using pre-calculated data, skipping unnecessary workflow steps")
-        # If we're using pre-calculated data, we don't need to do these steps
-        config["workflow"]["cleanup"] = False
-        config["workflow"]["generate"] = False
-        config["workflow"]["conf_search"] = False
-        config["workflow"]["dft_nmr"] = False
-        config["workflow"]["dft_energies"] = False
-        config["workflow"]["dft_opt"] = False
-        # But we still want to load shifts from cache
-        config["workflow"]["shifts_from_cache"] = True
-    
     logger.info(f"Structure cleanup required: {config['workflow']['cleanup']}")
     logger.info(f"Diastereomer generation required: {config['workflow']['generate']}")
     logger.info(f"Conformational search required: {config['workflow']['conf_search']}")
@@ -125,13 +105,11 @@ def run_workflow(
     logger.info(f"DP4 analysis required: {config['workflow']['dp4']}")
     logger.info(f"DP5 analysis required: {config['workflow']['dp5']}")
     
-    if use_precalculated:
-        logger.info(f"Using pre-calculated data: {config['workflow']['use_precalculated']}")
-        if precalculated_sdf:
-            logger.info(f"Pre-calculated SDF file: {config['precalculated_sdf']}")
+    if config["precalculated_sdf"]["path"]:
+        logger.info(f"Pre-calculated SDF file: {config['precalculated_sdf']['path']}")
 
     # calculations_complete should set MM and DFT completion flags as True
-    if config["workflow"]["calculations_complete"] or use_precalculated:
+    if config["workflow"]["calculations_complete"] or config["precalculated_sdf"]["path"]:
         config["workflow"]["mm_complete"] = True
         config["dft"]["dft_complete"] = True
         config["workflow"]["dft_complete"] = True
@@ -156,15 +134,9 @@ def run_workflow(
 
     if model:
         config["nn_model"]["model"] = model
-    
-    if shifts_from_cache:
-        config["workflow"]["shifts_from_cache"] = shifts_from_cache
 
     # Handle NMR file - optional input, not needed if just calculating NMR shifts
-    if skip_nmr:
-        logger.info("Skipping NMR processing as requested")
-        config["nmr_file"] = None
-    elif nmr_files:
+    if nmr_files:
         logger.debug(f"Read NMR File {nmr_files} from command line")
         config["nmr_file"] = nmr_files
     elif config["nmr_file"]:
@@ -221,20 +193,15 @@ def run_workflow(
 
     config["dft"]["solvent"] = config["solvent"]
 
-    # Skip prepare_inputs if using pre-calculated data from SDF
-    if use_precalculated and input_type == "sdf":
-        logger.info("Using pre-calculated SDF files, skipping input preparation")
-        # Just use the structure files as is
-    else:
-        config["structure"] = prepare_inputs(
-            config["structure"],
-            config["input_type"],
-            config["stereocentres"],
-            config["workflow"],
-            config["nn_model"],
-            ignore_sanitise_error=config["workflow"]["calculate_nmr_shifts"],
-            output_folder=config["output_folder"]
-        )
+    config["structure"] = prepare_inputs(
+        config["structure"],
+        config["input_type"],
+        config["stereocentres"],
+        config["workflow"],
+        config["nn_model"],
+        output_folder=config["output_folder"],
+        precalculated_sdf=config["precalculated_sdf"]
+    )
 
     logger.info(f"Final structure input files:{config['structure']}")
 
