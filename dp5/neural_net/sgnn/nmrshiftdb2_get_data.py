@@ -19,8 +19,8 @@ atom_list = ['H','C','N','O','F','Si','P','S','Cl','Br', 'I']
 # extension to atom list so errors not thrown up for compounds with elements not in the original list
 # there were no compounds with these elements in the training set
 atom_list_extension = ['B','Li','Na','K','Rb','Cs','Fr','Be','Mg','Ca','Sr','Ba','Ra','Sc','Ti','V','Cr','Mn','Fe','Co','Ni','Cu','Zn','Ga','Ge','As','Se','Br','Kr','Rb','Sr','Y','Zr','Nb','Mo','Tc','Ru','Rh','Pd','Ag','Cd','In','Sn','Sb','Te','I','Xe','La','Ce','Pr','Nd','Pm','Sm','Eu','Gd','Tb','Dy','Ho','Er','Tm','Yb','Lu','Hf','Ta','W','Re','Os','Ir','Pt','Au','Hg','Tl','Pb','Bi','Po','At','Rn','Ac','Th','Pa','U','Np','Pu','Am','Cm','Bk','Cf','Es','Fm','Md','No','Lr','Rf','Db','Sg','Bh','Hs','Mt','Ds','Rg','Cn','Nh','Fl','Mc','Lv','Ts','Og']
-atom_list = atom_list + atom_list_extension
-atom_set = set(atom_list)
+combined_atom_list = atom_list + atom_list_extension
+atom_set = set(combined_atom_list)
 charge_list = [1, 2, 3, -1, -2, -3, 0]
 degree_list = [1, 2, 3, 4, 5, 6, 0]
 valence_list = [1, 2, 3, 4, 5, 6, 0]
