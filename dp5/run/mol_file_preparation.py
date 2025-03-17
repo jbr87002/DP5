@@ -10,7 +10,7 @@ from dp5.run.utils import get_sdf_indices, get_inchi_key
 from dp5.neural_net.sgnn.nmrshiftdb2_get_data import check_allowed_atoms
 
 logger = logging.getLogger(__name__)
-
+logging.basicConfig(level=logging.INFO)
 
 def write_to_sdf(mol: Chem.rdchem.Mol, relative_path: Path, output_folder: str):
     """
@@ -240,14 +240,14 @@ def prepare_inputs(
     
     # check whether each molecule is in the precalculated sdf file
     if precalculated_sdf and precalculated_sdf.get("path"):
-        precalculated = check_mols_in_sdf(mols, precalculated_sdf["path"])
+        precalculated_keys = check_mols_in_sdf(mols, precalculated_sdf["path"])
     else:
-        precalculated = [False] * len(mols)
+        precalculated_keys = [None] * len(mols)
 
     logger.info(f"Structures read successfully")
 
     mols2 = []
-    final_precalculated = []
+    final_precalculated_keys = []
     mutable_atoms = stereocentres if len(input_files) == 1 else []
 
     if workflow["generate"]:
@@ -259,46 +259,41 @@ def prepare_inputs(
         logger.info("Generating MMFF geometries for inputs")
         # ignore sanitise error if just calculating NMR shifts
         ignore_sanitise_error = workflow["save_shifts"]
-        mol_iterator = tqdm(zip(mols, precalculated), desc="Generating MMFF geometries", unit="molecule", total=len(mols))
+        mol_iterator = tqdm(zip(mols, precalculated_keys), desc="Generating MMFF geometries", unit="molecule", total=len(mols))
         
         mols2 = []
         for mol, precalc in mol_iterator:
             if precalc:
                 # If molecule is in precalculated SDF, use it as is
                 mols2.append([mol])
-                final_precalculated.append(True)
+                final_precalculated_keys.append(precalc)
             else:
                 # try to clean it up
                 cleaned_mol = cleanup_3d(mol, ignore_sanitise_error=ignore_sanitise_error)
                 if cleaned_mol is not None:
                     mols2.append([cleaned_mol])
-                    final_precalculated.append(False)
+                    final_precalculated_keys.append(None)
                 else:
                     # Skip this molecule if cleanup failed
                     logger.warning("Skipping molecule due to sanitization error")
     else:
         mols2 = []
         # check if it contains only atoms suitable for the SGNN model
-        for mol, precalc in zip(mols, precalculated):
+        for mol, precalc in zip(mols, precalculated_keys):
             if not check_allowed_atoms(mol):
                 logger.warning(f"Molecule contains atoms unsuitable for the SGNN model: {mol.GetProp('_Name')}")
                 continue
             else:
                 mols2.append([mol])
-                final_precalculated.append(precalc)
+                final_precalculated_keys.append(precalc)
     logger.debug("Preparing to write structure files")
     filenames = []
-    for filename, mol, precalc in tqdm(zip(input_files, mols2, final_precalculated), desc="Writing structure files", total=len(input_files)):
+    for filename, mol, precalc in tqdm(zip(input_files, mols2, final_precalculated_keys), desc="Writing structure files", total=len(input_files)):
         for i, isomer in enumerate(mol, start=1):
             if precalc:
-                # if name is not provided, use InChI key, else use NPA number (name is NPA number)
-                if isomer.HasProp("_Name"):
-                    name = isomer.GetProp("_Name")
-                    if name.startswith("NPA") and any(c.isdigit() for c in name):
-                        fname = name
-                    else:
-                        fname = Chem.MolToInchiKey(isomer)
-                else:
+                if precalc == "npaid":
+                    fname = isomer.GetProp("_Name")
+                elif precalc == "inchi_key":
                     fname = Chem.MolToInchiKey(isomer)
             else:
                 if len(mol) == 1:
@@ -313,35 +308,32 @@ def prepare_inputs(
 def check_mols_in_sdf(mols, precalculated_sdf):
     """
     Check whether each molecule is in the precalculated SDF file
-    returns a list of booleans
+    returns a list of strings, "npaid", "inchi_key", or None
     """
-    logger = logging.getLogger(__name__)
-    
     inchi_key_index, npa_index, _ = get_sdf_indices(precalculated_sdf)
     
     if not inchi_key_index and not npa_index:
-        # If no indices were built, return all False
-        return [False] * len(mols)
+        # If no indices were obtained, return all None
+        return [None] * len(mols)
     
-    # Pre-compute InChI keys for all molecules at once to avoid redundant calculations
     mol_inchi_keys = [get_inchi_key(mol) for mol in mols]
     
-    # Check if each molecule is in the index by InChI key or NPA number
-    precalculated = []
+    # Check if each molecule is in the index by InChI key or npaid
+    # try to find the molecule by npaid first, then by inchi_key if npaid is not found
+    precalculated_keys = []
     for mol, inchi_key in zip(mols, mol_inchi_keys):
-        if inchi_key is not None and inchi_key in inchi_key_index:
-            precalculated.append(True)
-        elif mol.HasProp("_Name"):
+        if mol.HasProp("_Name"):
             name = mol.GetProp("_Name")
             if name.startswith("NPA") and any(c.isdigit() for c in name) and name in npa_index:
-                precalculated.append(True)
-            else:
-                precalculated.append(False)
+                precalculated_keys.append("npaid")
+                continue
+        if inchi_key is not None and inchi_key in inchi_key_index:
+            precalculated_keys.append("inchi_key")
         else:
-            precalculated.append(False)
+            precalculated_keys.append(None)
     
     # Log how many molecules were found in the precalculated SDF
-    found_count = sum(1 for p in precalculated if p)
+    found_count = sum(1 for p in precalculated_keys if p)
     logger.info(f"Found {found_count} out of {len(mols)} molecules in precalculated SDF file")
     
-    return precalculated
+    return precalculated_keys

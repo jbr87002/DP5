@@ -15,14 +15,14 @@ import pickle
 import json
 import logging
 from pathlib import Path
-
+import os
 
 class Molecule:
     def __init__(self, input_file: str, output_folder: str):
         self.input_file = input_file
         self.output_folder = output_folder
         self.base_name = input_file.rsplit(".", maxsplit=1)[0]
-        mol_path = Path(output_folder) / input_file
+        mol_path = os.path.join(output_folder, input_file)
         mol = Chem.MolFromMolFile(mol_path, removeHs=False)
 
         self.atoms = [at.GetSymbol() for at in mol.GetAtoms()]
@@ -519,7 +519,7 @@ class Molecules_precalculated(Molecules):
             mol_idx = None
             if is_npa and input_file in self.npa_index:
                 mol_idx = self.npa_index[input_file]
-            elif not is_npa and input_file in self.inchi_key_index:
+            elif input_file in self.inchi_key_index:
                 mol_idx = self.inchi_key_index[input_file]
             else:
                 raise ValueError(f"Molecule with identifier {input_file} not found in precalculated SDF file")
