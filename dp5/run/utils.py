@@ -47,7 +47,7 @@ def build_sdf_index(sdf_path: str) -> Tuple[Dict[str, int], Dict[str, int], Opti
                     continue
             inchi_key_index[inchi_key] = mol_idx
             
-            # Get NPA number if present
+            # Get npaid if present
             if mol.HasProp("_Name"):
                 name = mol.GetProp("_Name")
                 if name.startswith("NPA") and any(c.isdigit() for c in name):
