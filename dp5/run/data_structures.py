@@ -509,7 +509,7 @@ class Molecules_precalculated(Molecules):
             # Initialize normally from SDF file
             return Molecule(input_file, output_folder)
         else:
-            # Check if input_file is an NPA identifier
+            # Check if input_file is an npaid
             is_npa = input_file.startswith('NPA') and any(c.isdigit() for c in input_file)
             
             if precalculated_sdf is None or self.sdf_supplier is None:

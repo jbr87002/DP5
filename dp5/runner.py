@@ -64,29 +64,10 @@ def runner(config):
     data.assign_nmr_spectra(nmr_data)
 
     # Run analysis
-    run_analysis(data, config)
-    data.print_results()
-    
-    return data
-
-
-def get_nmr_shifts(data, config):
-    """
-    Get NMR shifts either from pre-calculated data or by generating them.
-    """
-    logger.info("Generating chemical shifts using a neural network")
-    data.get_nn_nmr_shifts()
-
-    if config["workflow"]["save_shifts"]:
-        logger.info("Saving NMR shifts to SDF file")
-        data.save_nmr_shifts_sdf()
-
-
-def run_analysis(data, config):
-    """
-    Run DP4 and DP5 analysis if requested.
-    """
     if config["workflow"]["dp5"]:
         data.dp5_analysis()
     if config["workflow"]["dp4"]:
         data.dp4_analysis()
+    data.print_results()
+    
+    return data
