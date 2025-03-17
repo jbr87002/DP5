@@ -18,8 +18,6 @@ pip install -e .
 
 If this is not done, the SGNN model will not be available.
 
-## Notes for `separate_stages_snapnmr` branch
-
-This branch is a modification of the `snap-nmr` branch, to add the functions to
-cache predicted NMR shifts and also reload previously cached shifts to use in a
-calculation.
+## Notes for `snap-nmr` branch
+This branch is a modification of the main branch, to adapt pydp4 to the specific
+requirements of snap-nmr.
