@@ -13,7 +13,8 @@ sys.path.append('/scratch/jbr46/NP/nmr-ase')
 # nmrshiftdb2withsignals.sd
 
 
-molsuppl = Chem.SDMolSupplier('/scratch/jbr46/SGNN_source/data/nmrshiftdb2withsignals.sd', removeHs = False)
+# nmrshiftdb2 data not needed, was just used when originally training SGNN model
+# molsuppl = Chem.SDMolSupplier('/scratch/jbr46/SGNN_source/data/nmrshiftdb2withsignals.sd', removeHs = False)
 
 atom_list = ['H','C','N','O','F','Si','P','S','Cl','Br', 'I']
 atom_set = set(atom_list)
