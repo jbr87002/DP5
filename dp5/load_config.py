@@ -37,7 +37,8 @@ def run_workflow(
     stereocentres=None, 
     model='cascade', 
     remove_previous=False, 
-    precalculated_sdf=None
+    precalculated_sdf=None,
+    save_shifts_dir=None
 ):
     """
     Run the DP5 workflow.
@@ -80,6 +81,11 @@ def run_workflow(
         config["precalculated_sdf"] = {"path": precalculated_sdf}
     else:
         config["precalculated_sdf"] = {"path": None}
+    
+    if save_shifts_dir:
+        config["save_shifts_dir"] = save_shifts_dir
+    else:
+        config["save_shifts_dir"] = None
     
     # Override workflow flag
     if workflow is not None:

@@ -48,7 +48,10 @@ def runner(config):
 
         if config["workflow"]["save_shifts"]:
             logger.info("Saving NMR shifts to SDF file")
-            data.save_nmr_shifts_sdf()
+            if config["save_shifts_dir"]:
+                data.save_nmr_shifts_sdf(directory=config["save_shifts_dir"])
+            else:
+                data.save_nmr_shifts_sdf()
     
     # Process NMR data if provided
     if not config.get("nmr_file"):
