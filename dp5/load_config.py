@@ -195,7 +195,6 @@ def run_workflow(
 
     if output_path:
         config["output_folder"] = output_path
-    config["output_folder"] = (Path.cwd() / config["output_folder"]).resolve()
 
     config["dft"]["solvent"] = config["solvent"]
 
