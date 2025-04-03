@@ -11,8 +11,9 @@ from dp5.load_config import run_workflow
 from rdkit import Chem
 
 nmr_file = "/scratch/jbr46/np_atlas_nmr/NMR_example"
-precalculated_sdf = "/scratch/jbr46/np_atlas_nmr/nmr_shifts.sdf"
-output_path = "/scratch/jbr46/np_atlas_nmr/dp5_precalc_testing"
+# precalculated_sdf = "/scratch/jbr46/np_atlas_nmr/nmr_shifts.sdf"
+precalculated_sdf = None
+output_path = "/scratch/jbr46/sarolt_compounds"
 data = run_workflow(
     structure_files=['/scratch/jbr46/np_atlas_nmr/np_atlas_100.smi'],
     nmr_files=[nmr_file],

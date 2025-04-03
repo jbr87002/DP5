@@ -14,9 +14,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from dp5.load_config import run_workflow
 
 def main():
-    smiles_file = "/scratch/jbr46/np_atlas_nmr/np_atlas_1000.smi"
+    smiles_file = "/scratch/jbr46/sarolt_compounds/input.smi"
     
-    output_dir = "/scratch/jbr46/np_atlas_nmr"
+    output_dir = "/scratch/jbr46/sarolt_compounds"
     # precalculated_sdf = "/scratch/jbr46/np_atlas_nmr/nmr_shifts.sdf"
     precalculated_sdf = None
 
@@ -28,7 +28,7 @@ def main():
         output_path=output_dir,
         input_type="smiles",
         workflow="N",  # Just calculate NMR shifts
-        model='sgnn',
+        model='cascade',
         precalculated_sdf=precalculated_sdf
     )
     
