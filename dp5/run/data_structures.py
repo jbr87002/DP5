@@ -19,6 +19,7 @@ import os
 
 class Molecule:
     def __init__(self, input_file: str, output_folder: str):
+        logger = logging.getLogger(__name__)
         self.input_file = input_file
         self.output_folder = output_folder
         self.base_name = input_file.rsplit(".", maxsplit=1)[0]
@@ -33,9 +34,18 @@ class Molecule:
         prop = rdForceFieldHelpers.MMFFGetMoleculeProperties(mol, mmffVariant="MMFF94s")
         ff = rdForceFieldHelpers.MMFFGetMoleculeForceField(mol, prop)
         if ff is not None:
-            self._energies = np.array([float(ff.CalcEnergy()) * 4.184])
+            logger.debug(f'FF is not None')
+            energies = float(ff.CalcEnergy()) * 4.184
+            logger.debug(f'Calculated energies: {energies}')
+            if not np.isnan(energies):
+                self._energies = np.array([energies])
+            else:
+                logger.debug(f'Energies is nan, setting to 0.0')
+                self._energies = np.array([0.0])
         else:
+            logger.debug(f'FF is None')
             self._energies = np.array([0.0])
+        logger.debug(f'Energies: {self._energies}')
         # creates mol object for further manipulation
         self._rdkit_mols = None
         self._populations = None
@@ -210,12 +220,29 @@ class Molecule:
 
     @property
     def C_shifts(self):
+        logger = logging.getLogger(__name__)
+        logger.debug(f'\nC_shifts before boltzmann weighting: {self.conformer_C_pred}')
+        logger.debug(f'Populations: {self.populations}')
+        logger.debug(f'Energies: {self.energies}')
+        logger.debug(f'C_shifts after boltzmann weighting: {self.boltzmann_weighting("conformer_C_pred")}\n')
         return self.boltzmann_weighting("conformer_C_pred")
 
     def assign_nmr(self, C_exp, H_exp):
-        self.C_exp, self.H_exp = np.array(C_exp, dtype=np.float32), np.array(
-            H_exp, dtype=np.float32
-        )
+        # Convert None values to NaN for proper float array handling
+        import numpy as np
+        
+        # Convert NoneType values to NaN
+        if C_exp:
+            C_exp_processed = np.array([np.nan if x is None else x for x in C_exp], dtype=np.float32)
+        else:
+            C_exp_processed = np.array([], dtype=np.float32)
+            
+        if H_exp:
+            H_exp_processed = np.array([np.nan if x is None else x for x in H_exp], dtype=np.float32)
+        else:
+            H_exp_processed = np.array([], dtype=np.float32)
+            
+        self.C_exp, self.H_exp = C_exp_processed, H_exp_processed
 
     def add_dp4_data(self, dp4_data):
         self.dp4_data = dp4_data
