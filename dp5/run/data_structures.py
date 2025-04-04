@@ -611,7 +611,11 @@ class Molecules_precalculated(Molecules):
                 prop = rdForceFieldHelpers.MMFFGetMoleculeProperties(mol, mmffVariant="MMFF94s")
                 ff = rdForceFieldHelpers.MMFFGetMoleculeForceField(mol, prop)
                 if ff is not None:
-                    molecule._energies = np.array([float(ff.CalcEnergy()) * 4.184])
+                    energies = float(ff.CalcEnergy()) * 4.184
+                    if not np.isnan(energies):
+                        molecule._energies = np.array([energies])
+                    else:
+                        molecule._energies = np.array([0.0])
                 else:
                     molecule._energies = np.array([0.0])
             except:
