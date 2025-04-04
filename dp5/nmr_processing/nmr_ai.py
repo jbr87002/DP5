@@ -176,38 +176,3 @@ class NMRData:
 
     def __call__(self, mol):
         return self.assign(mol)
-
-def matching_assignment(C_shifts, C_exp, threshold=40):
-    """
-    Assigns experimental shifts to calculated shifts using a simple matching algorithm
-    Arguments:
-    - C_shifts: list of lists of [lower, median, upper] shifts for each atom
-    - C_exp: list of experimental shifts
-    - threshold: maximum difference between shifts to consider a match
-    Returns:
-    - list of assigned experimental shifts (None for unassigned atoms)
-    """
-    # Original matching logic using median shifts
-    C_assigned = [None] * len(C_shifts)
-    used_exp = set()
-    
-    # First pass - assign closest experimental shift within threshold
-    for i, calc_shift in enumerate(C_shifts):
-        best_diff = threshold
-        best_exp = None
-        best_exp_idx = None
-        
-        for j, exp_shift in enumerate(C_exp):
-            if j in used_exp:
-                continue
-            diff = abs(calc_shift - exp_shift)
-            if diff < best_diff:
-                best_diff = diff
-                best_exp = exp_shift
-                best_exp_idx = j
-        
-        if best_exp is not None:
-            C_assigned[i] = best_exp
-            used_exp.add(best_exp_idx)
-    
-    return C_assigned
