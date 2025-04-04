@@ -312,14 +312,17 @@ class Molecules:
             model=self.config["nn_model"]["model"], 
             n_forward_pass=self.config["nn_model"]["n_forward_pass"]
         )
+        logger.debug(f"Cascade shifts labels: {cascade_shifts_labels}\n")
         
         # Assign the generated shifts to the appropriate molecules
         for idx, *m_shift_label in zip(indices_needing_shifts, *cascade_shifts_labels):
             self.mols[idx].add_nn_shifts(m_shift_label)
         
     def assign_nmr_spectra(self, nmrdata):
+        logger = logging.getLogger(__name__)
         for mol in self.mols:
             C_exp, H_exp = nmrdata.assign(mol)
+            logger.debug(f"C_exp: {C_exp}, H_exp: {H_exp}\n")
             mol.assign_nmr(C_exp, H_exp)
 
     def dp5_analysis(self):
