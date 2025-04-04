@@ -279,9 +279,10 @@ def prepare_inputs(
     else:
         mols2 = []
         # check if it contains only atoms suitable for the SGNN model
-        for mol, precalc in zip(mols, precalculated_keys):
+        for idx, (mol, precalc) in enumerate(zip(mols, precalculated_keys)):
             if not check_allowed_atoms(mol):
-                logger.warning(f"Molecule contains atoms unsuitable for the SGNN model: {mol.GetProp('_Name')}")
+                name = mol.GetProp('_Name') if mol.HasProp('_Name') else f"mol_{idx:03}"
+                logger.warning(f"Molecule contains atoms unsuitable for the SGNN model: {name}")
                 continue
             else:
                 mols2.append([mol])
