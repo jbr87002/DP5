@@ -38,7 +38,8 @@ def run_workflow(
     model='cascade', 
     remove_previous=False, 
     precalculated_sdf=None,
-    save_shifts_dir=None
+    save_shifts_dir=None,
+    config_path=None
 ):
     """
     Run the DP5 workflow.
@@ -59,7 +60,8 @@ def run_workflow(
     """
 
     # load custom configuration
-    config_path = DEFAULT_BASE_CONFIG_PATH
+    if config_path is None:
+        config_path = DEFAULT_BASE_CONFIG_PATH
     if config_path.suffix == ".toml":
         with open(config_path, "rb") as f:
             config = tomli.load(f)
