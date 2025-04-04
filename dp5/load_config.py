@@ -194,7 +194,7 @@ def run_workflow(
         logger.info(f"1H reference shielding: {config['dft']['h1_tms']:.2f} ppm")
 
     if output_path:
-        config["output_folder"] = output_path
+        config["output_folder"] = Path(output_path)
 
     config["dft"]["solvent"] = config["solvent"]
 
