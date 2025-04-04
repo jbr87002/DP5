@@ -146,6 +146,7 @@ class NMRData:
         - assigned experimental proton shifts
         - scaled calculated proton shifts
         """
+        logger = logging.getLogger(__name__)
         C_exp = []
         H_exp = []
 
@@ -166,7 +167,10 @@ class NMRData:
             C_exp = carbon_assignment(self.carbondata, _mol, C_shifts, C_labels)
             plot_carbon(self.carbondata, self.output_folder, mol, C_exp)
         elif hasattr(self, "C_exp"):
+            logger.debug(f"C_exp before assignment: {self.C_exp}")
+            logger.debug(f"C_shifts before assignment: {C_shifts}")
             C_exp = matching_assignment(C_shifts, self.C_exp, threshold=40)
+            logger.debug(f"C_exp after assignment: {C_exp}")
 
         return C_exp, H_exp
 
