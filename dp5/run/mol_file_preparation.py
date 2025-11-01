@@ -29,7 +29,7 @@ def write_to_sdf(mol: Chem.rdchem.Mol, relative_path: Path, output_folder: str):
     return file_path
 
 
-def cleanup_3d(mol, ignore_sanitise_error=False):
+def cleanup_3d(mol, ignore_sanitise_error=False, max_attempts=100):
     """
     Generates a 3D conformer of a molecule.
 
@@ -46,6 +46,7 @@ def cleanup_3d(mol, ignore_sanitise_error=False):
             mol,
             randomSeed=0,
             forceTol=0.0135,
+            maxAttempts=max_attempts
         )
         if cid == -1:
             if ignore_sanitise_error:
@@ -276,6 +277,8 @@ def prepare_inputs(
                 else:
                     # Skip this molecule if cleanup failed
                     logger.warning("Skipping molecule due to sanitization error")
+                    mols2.append(None)
+                    final_precalculated_keys.append(None)
     else:
         mols2 = []
         # check if it contains only atoms suitable for the SGNN model
@@ -290,6 +293,9 @@ def prepare_inputs(
     logger.debug("Preparing to write structure files")
     filenames = []
     for filename, mol, precalc in tqdm(zip(input_files, mols2, final_precalculated_keys), desc="Writing structure files", total=len(input_files)):
+        if mol is None:
+            # skip writing but keep right alignment of mols and ids
+            continue
         for i, isomer in enumerate(mol, start=1):
             if precalc:
                 if precalc == "npaid":
